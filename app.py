@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -30,6 +31,7 @@ set_korean_font()
 st.set_page_config(page_title="도시가스 판매량 분석 보고서", layout="wide")
 
 DEFAULT_SALES_XLSX = "판매량(계획_실적).xlsx"
+DEFAULT_CSV = "가정용외_202601.csv"
 
 # ─────────────────────────────────────────────────────────
 # 코멘트 DB 저장 및 UI 유틸 (PW: 1234)
@@ -122,7 +124,6 @@ USE_COL_TO_GROUP: Dict[str, str] = {
 COLOR_PLAN = "rgba(0, 90, 200, 1)"
 COLOR_ACT = "rgba(0, 150, 255, 1)"
 COLOR_PREV = "rgba(190, 190, 190, 1)"
-COLOR_DIFF = "rgba(0, 80, 160, 1)"
 
 
 # ─────────────────────────────────────────────────────────
@@ -326,10 +327,10 @@ with st.sidebar:
             df_list = []
             for f in up_csvs:
                 try:
-                    df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="utf-8-sig"))
+                    df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="utf-8-sig", thousands=','))
                 except:
                     try:
-                        df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="cp949"))
+                        df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="cp949", thousands=','))
                     except:
                         pass
             if df_list:
@@ -364,10 +365,10 @@ if src_csv == "레포 파일 사용":
     csv_list = []
     for p in all_csvs:
         try:
-            csv_list.append(pd.read_csv(p, encoding="utf-8-sig"))
+            csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
         except:
             try:
-                csv_list.append(pd.read_csv(p, encoding="cp949"))
+                csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
             except:
                 pass
     if csv_list:
@@ -377,10 +378,11 @@ if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
     
 if not df_csv.empty:
+    # [수정] 콤마, 따옴표, 공백 등 숫자 외의 불순물을 정규식으로 완벽하게 제거하여 ValueError 방지
     if "사용량(mj)" in df_csv.columns:
-        df_csv["사용량(mj)"] = pd.to_numeric(df_csv["사용량(mj)"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+        df_csv["사용량(mj)"] = pd.to_numeric(df_csv["사용량(mj)"].astype(str).str.replace(r"[^\d\.-]", "", regex=True), errors="coerce").fillna(0)
     if "사용량(m3)" in df_csv.columns:
-        df_csv["사용량(m3)"] = pd.to_numeric(df_csv["사용량(m3)"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+        df_csv["사용량(m3)"] = pd.to_numeric(df_csv["사용량(m3)"].astype(str).str.replace(r"[^\d\.-]", "", regex=True), errors="coerce").fillna(0)
         
 comments_db = load_comments_db()
         
@@ -421,7 +423,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if not df_csv.empty:
             df_csv["날짜_파싱"] = pd.NaT
             
-            # [수정] 청구년월과 매출년월을 최우선으로 스캔 (과거 날짜 혼입 방지)
             for date_column in ["청구년월", "매출년월", "년월", "기준년월"]:
                 if date_column in df_csv.columns:
                     mask1 = df_csv["날짜_파싱"].isna()
@@ -597,16 +598,13 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), xaxis_title="월", yaxis_title=f"판매량({unit_str})", margin=dict(t=10, b=10, l=10, r=10), height=420, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_m, use_container_width=True)
                     
-                # [수정] 엑셀과 100% 동일한 분류 기준 및 데이터 집계 반영
                 if usage_name in ["산업용", "업무용"] and not df_csv.empty and val_col in df_csv.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
                     if usage_name == "산업용":
-                        # 공백 제거 후 정확히 '산업용'인 것만 추출
                         df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.replace(" ", "") == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
                         grp_col = "업종"
                     else: 
-                        # 업무용에 해당하는 모든 키워드 정확히 필터링
                         df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.replace(" ", "").str.contains("업무난방용|냉난방용|냉방용|주한미군", na=False, regex=True)) & (df_csv["월_csv"] <= max_month)].copy()
                         if "업종분류" in df_sub_filtered.columns:
                             df_sub_filtered["업종"] = df_sub_filtered["업종분류"]
@@ -668,7 +666,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             def render_attachment_report(usage_label, section_num, key_sfx):
                 st.markdown(f"##### 🏭 {section_num}. 별첨 ({usage_label})")
                 
-                # [수정] 엑셀과 100% 동일한 분류 기준 적용 (별첨 표)
+                # [수정] 엑셀과 동일한 필터링 기준 적용 (별첨 표)
                 if usage_label == "산업용":
                     df_sub = df_csv[df_csv["상품명"].astype(str).str.replace(" ", "") == "산업용"].copy()
                 else: 
