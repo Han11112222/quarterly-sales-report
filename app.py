@@ -129,6 +129,22 @@ COLOR_PREV = "rgba(190, 190, 190, 1)"
 # ─────────────────────────────────────────────────────────
 # 공통 유틸
 # ─────────────────────────────────────────────────────────
+def parse_korean_num(val):
+    """(123), 123- 등 회계형 마이너스를 포함한 숫자 완벽 파싱"""
+    if pd.isna(val): return 0.0
+    s = str(val).strip()
+    if not s: return 0.0
+    s = s.replace(",", "")
+    if s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1]
+    elif s.endswith("-"):
+        s = "-" + s[:-1]
+    s = re.sub(r"[^\d\.-]", "", s)
+    try:
+        return float(s)
+    except:
+        return 0.0
+
 def fmt_num_safe(v) -> str:
     if pd.isna(v):
         return "-"
@@ -378,14 +394,14 @@ if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
     
 if not df_csv.empty:
+    # [완벽 수정] 커스텀 파싱 함수를 통해 괄호, 마이너스 위치, 공백 등 모든 변수를 완벽히 컨트롤
     if "사용량(mj)" in df_csv.columns:
-        df_csv["사용량(mj)"] = pd.to_numeric(df_csv["사용량(mj)"].astype(str).str.replace(r"[^\d\.-]", "", regex=True), errors="coerce").fillna(0)
+        df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(parse_korean_num)
     if "사용량(m3)" in df_csv.columns:
-        df_csv["사용량(m3)"] = pd.to_numeric(df_csv["사용량(m3)"].astype(str).str.replace(r"[^\d\.-]", "", regex=True), errors="coerce").fillna(0)
+        df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(parse_korean_num)
         
 comments_db = load_comments_db()
         
-# 탭 순서 변경 (열량 -> 부피)
 rpt_tabs = st.tabs(["열량 기준 (GJ)", "부피 기준 (천m³)"])
 
 for idx, rpt_tab in enumerate(rpt_tabs):
@@ -423,7 +439,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if not df_csv.empty:
             df_csv["날짜_파싱"] = pd.NaT
             
-            # [완벽 수정] 오직 '청구년월'을 최우선으로 스캔, 불필요한 과거 계약일자 등에 의한 오작동 및 136 중복 방지
+            # 오직 '청구년월'을 최우선으로 스캔하여 불필요한 과거 계약일자가 반영되는 것을 방지
             date_col = None
             if "청구년월" in df_csv.columns:
                 date_col = "청구년월"
@@ -446,8 +462,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 if mask3.any():
                     df_csv.loc[mask3, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask3, date_col], errors="coerce")
 
-            df_csv["연_csv"] = df_csv["날짜_파싱"].dt.year.fillna(years_available[default_y_index])
-            df_csv["월_csv"] = df_csv["날짜_파싱"].dt.month.fillna(1)
+            # [완벽 수정] fillna 제거하여, 날짜 형식이 깨진 데이터가 강제로 당해연도에 병합되는(136 추가) 문제 차단
+            df_csv["연_csv"] = df_csv["날짜_파싱"].dt.year
+            df_csv["월_csv"] = df_csv["날짜_파싱"].dt.month
         
         c_y, c_q, c_empty = st.columns([1, 1, 2])
         with c_y:
@@ -607,18 +624,18 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), xaxis_title="월", yaxis_title=f"판매량({unit_str})", margin=dict(t=10, b=10, l=10, r=10), height=420, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_m, use_container_width=True)
                     
-                # 산업용, 업무용 하단 세부 업종별 차트 
                 if usage_name in ["산업용", "업무용"] and not df_csv.empty and val_col in df_csv.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
-                    # [완벽 수정] 엑셀 원본과 총량이 100% 일치하도록 가장 엄격한 ISIN 매칭 적용
+                    csv_products = df_csv["상품명"].astype(str).str.replace(r"\s+", "", regex=True)
+                    
+                    # [완벽 수정] 업무용 총계 100% 매칭 (isin 명확한 검증)
                     if usage_name == "산업용":
-                        df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.strip() == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
+                        df_sub_filtered = df_csv[(csv_products == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
                         grp_col = "업종"
                     else: 
-                        # 업무용은 사용자가 명시한 3가지 항목과 정확하게 토씨 하나 안 틀리고 매칭
-                        valid_biz = ["냉난방용(업무)", "업무난방용", "주한미군"]
-                        df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.strip().isin(valid_biz)) & (df_csv["월_csv"] <= max_month)].copy()
+                        valid_biz_nospaces = ["냉난방용(업무)", "업무난방용", "주한미군"]
+                        df_sub_filtered = df_csv[(csv_products.isin(valid_biz_nospaces)) & (df_csv["월_csv"] <= max_month)].copy()
                         if "업종분류" in df_sub_filtered.columns:
                             df_sub_filtered["업종"] = df_sub_filtered["업종분류"]
                         grp_col = "업종"
@@ -679,12 +696,13 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             def render_attachment_report(usage_label, section_num, key_sfx):
                 st.markdown(f"##### 🏭 {section_num}. 별첨 ({usage_label})")
                 
-                # [완벽 수정] 별첨 표에서도 동일하게 엄격한 ISIN 매칭 적용
+                csv_products_att = df_csv["상품명"].astype(str).str.replace(r"\s+", "", regex=True)
+                
                 if usage_label == "산업용":
-                    df_sub = df_csv[df_csv["상품명"].astype(str).str.strip() == "산업용"].copy()
+                    df_sub = df_csv[csv_products_att == "산업용"].copy()
                 else: 
                     valid_biz_att = ["냉난방용(업무)", "업무난방용", "주한미군"]
-                    df_sub = df_csv[df_csv["상품명"].astype(str).str.strip().isin(valid_biz_att)].copy()
+                    df_sub = df_csv[csv_products_att.isin(valid_biz_att)].copy()
                     if "업종분류" in df_sub.columns:
                         df_sub["업종"] = df_sub["업종분류"]
                 
