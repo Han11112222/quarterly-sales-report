@@ -292,7 +292,7 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
 # ─────────────────────────────────────────────────────────
 # 메인 레이아웃 (사이드바)
 # ─────────────────────────────────────────────────────────
-st.title("도시가스 판매량 분석 보고서 (분기별)")
+st.title("📊 판매량 분석 보고서")
 
 with st.sidebar:
     st.header("📂 데이터 불러오기")
@@ -378,7 +378,6 @@ if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
     
 if not df_csv.empty:
-    # [수정] 콤마, 따옴표, 공백 등 숫자 외의 불순물을 정규식으로 완벽하게 제거하여 ValueError 방지
     if "사용량(mj)" in df_csv.columns:
         df_csv["사용량(mj)"] = pd.to_numeric(df_csv["사용량(mj)"].astype(str).str.replace(r"[^\d\.-]", "", regex=True), errors="coerce").fillna(0)
     if "사용량(m3)" in df_csv.columns:
@@ -386,20 +385,21 @@ if not df_csv.empty:
         
 comments_db = load_comments_db()
         
-rpt_tabs = st.tabs(["부피 기준 (천m³)", "열량 기준 (GJ)"])
+# [수정] 탭 순서 변경 (열량 -> 부피)
+rpt_tabs = st.tabs(["열량 기준 (GJ)", "부피 기준 (천m³)"])
 
 for idx, rpt_tab in enumerate(rpt_tabs):
     with rpt_tab:
         if idx == 0:
-            df_long_rpt = long_dict_rpt.get("부피", pd.DataFrame())
-            unit_str = "천m³"
-            val_col = "사용량(m3)"
-            key_sfx = "_vol"
-        else:
             df_long_rpt = long_dict_rpt.get("열량", pd.DataFrame())
             unit_str = "GJ"
             val_col = "사용량(mj)"
             key_sfx = "_gj"
+        else:
+            df_long_rpt = long_dict_rpt.get("부피", pd.DataFrame())
+            unit_str = "천m³"
+            val_col = "사용량(m3)"
+            key_sfx = "_vol"
 
         st.markdown("#### 📅 보고서 기준 일자") 
         
@@ -601,6 +601,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 if usage_name in ["산업용", "업무용"] and not df_csv.empty and val_col in df_csv.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
+                    # [수정] 업무용 총계 일치를 위한 정규표현식 필터링 (엑셀 100% 동일 매칭)
                     if usage_name == "산업용":
                         df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.replace(" ", "") == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
                         grp_col = "업종"
