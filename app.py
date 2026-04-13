@@ -385,7 +385,6 @@ if not df_csv.empty:
         
 comments_db = load_comments_db()
         
-# [수정] 탭 순서 변경 (열량 -> 부피)
 rpt_tabs = st.tabs(["열량 기준 (GJ)", "부피 기준 (천m³)"])
 
 for idx, rpt_tab in enumerate(rpt_tabs):
@@ -598,15 +597,17 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), xaxis_title="월", yaxis_title=f"판매량({unit_str})", margin=dict(t=10, b=10, l=10, r=10), height=420, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_m, use_container_width=True)
                     
+                # 산업용, 업무용인 경우 하단에 세부 업종별 그래프 추가
                 if usage_name in ["산업용", "업무용"] and not df_csv.empty and val_col in df_csv.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
-                    # [수정] 업무용 총계 일치를 위한 정규표현식 필터링 (엑셀 100% 동일 매칭)
+                    # [수정] 업무용 필터링 로직 엑셀과 100% 일치 (정확한 키워드 매칭)
                     if usage_name == "산업용":
                         df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.replace(" ", "") == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
                         grp_col = "업종"
                     else: 
-                        df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.replace(" ", "").str.contains("업무난방용|냉난방용|냉방용|주한미군", na=False, regex=True)) & (df_csv["월_csv"] <= max_month)].copy()
+                        valid_biz = ["업무난방용", "냉난방용(업무)", "주한미군"]
+                        df_sub_filtered = df_csv[(df_csv["상품명"].astype(str).str.strip().isin(valid_biz)) & (df_csv["월_csv"] <= max_month)].copy()
                         if "업종분류" in df_sub_filtered.columns:
                             df_sub_filtered["업종"] = df_sub_filtered["업종분류"]
                         grp_col = "업종"
@@ -667,11 +668,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             def render_attachment_report(usage_label, section_num, key_sfx):
                 st.markdown(f"##### 🏭 {section_num}. 별첨 ({usage_label})")
                 
-                # [수정] 엑셀과 동일한 필터링 기준 적용 (별첨 표)
+                # [수정] 엑셀과 100% 동일한 분류 기준 적용 (별첨 표)
                 if usage_label == "산업용":
                     df_sub = df_csv[df_csv["상품명"].astype(str).str.replace(" ", "") == "산업용"].copy()
                 else: 
-                    df_sub = df_csv[df_csv["상품명"].astype(str).str.replace(" ", "").str.contains("업무난방용|냉난방용|냉방용|주한미군", na=False, regex=True)].copy()
+                    valid_biz = ["업무난방용", "냉난방용(업무)", "주한미군"]
+                    df_sub = df_csv[df_csv["상품명"].astype(str).str.strip().isin(valid_biz)].copy()
                     if "업종분류" in df_sub.columns:
                         df_sub["업종"] = df_sub["업종분류"]
                 
