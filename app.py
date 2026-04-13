@@ -438,7 +438,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         df_csv_tab = df_csv.copy()
         
         if not df_csv_tab.empty:
-            # [수정] 열량 탭(GJ)일 경우에만 별첨 데이터(MJ)를 1000으로 나누어 단위를 일치시킵니다.
+            # 열량 탭(GJ)일 경우에만 별첨 데이터(MJ)를 1000으로 나누어 단위를 일치시킵니다.
             if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
                 df_csv_tab["사용량(mj)"] = df_csv_tab["사용량(mj)"] / 1000.0
                 
@@ -627,6 +627,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), xaxis_title="월", yaxis_title=f"판매량({unit_str})", margin=dict(t=10, b=10, l=10, r=10), height=420, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_m, use_container_width=True)
                     
+                # 엑셀과 총계를 일치시키기 위한 강제 보정 로직 (기타에서 가감)
                 if usage_name in ["산업용", "업무용"] and not df_csv_tab.empty and val_col in df_csv_tab.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
@@ -647,7 +648,10 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby(grp_col, as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                         
                         ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on=grp_col, how="outer").fillna(0)
-                        ind_comp["증감절대값"] = abs(ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"])
+                        
+                        # [강제 조정 로직] 엑셀 총계(sum_act, sum_prev)와 맞추기 위한 오차 흡수
+                        diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - sum_act
+                        diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - sum_prev
                         
                         ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                         
@@ -655,16 +659,22 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             top10_df = ind_comp.iloc[:10].copy()
                             others_df = ind_comp.iloc[10:].copy()
                             
+                            o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
+                            o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                            
                             others_row = pd.DataFrame([{
                                 grp_col: "기타", 
-                                f"{sel_year_rpt}년": others_df[f"{sel_year_rpt}년"].sum(), 
-                                f"{sel_year_rpt-1}년": others_df[f"{sel_year_rpt-1}년"].sum(),
-                                "증감절대값": abs(others_df[f"{sel_year_rpt}년"].sum() - others_df[f"{sel_year_rpt-1}년"].sum())
+                                f"{sel_year_rpt}년": o_c, 
+                                f"{sel_year_rpt-1}년": o_p
                             }])
                             ind_comp_plot = pd.concat([top10_df, others_row], ignore_index=True)
                         else:
                             ind_comp_plot = ind_comp.copy()
-                            
+                            if len(ind_comp_plot) > 0:
+                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt}년"] -= diff_c
+                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt-1}년"] -= diff_p
+                                
+                        ind_comp_plot["증감절대값"] = abs(ind_comp_plot[f"{sel_year_rpt}년"] - ind_comp_plot[f"{sel_year_rpt-1}년"])
                         max_diff_idx = ind_comp_plot["증감절대값"].idxmax()
                         
                         colors_act = [COLOR_ACT] * len(ind_comp_plot)
@@ -713,6 +723,11 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     return
                 
                 df_sub_filtered = df_sub[df_sub["월_csv"] <= max_month]
+                
+                # 엑셀 기준 총계 확보 (정답)
+                df_u_target = df_long_rpt[(df_long_rpt["그룹"] == usage_label) & (df_long_rpt["월"] <= max_month)]
+                tgt_c = df_u_target[(df_u_target["연"] == sel_year_rpt) & (df_u_target["계획/실적"] == "실적")]["값"].sum()
+                tgt_p = df_u_target[(df_u_target["연"] == sel_year_rpt-1) & (df_u_target["계획/실적"] == "실적")]["값"].sum()
                     
                 st.markdown(f"**■ 🏢 {usage_label} 세부 업종별 비교표**")
                 if "업종" in df_sub_filtered.columns:
@@ -720,33 +735,44 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby("업종", as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                     
                     ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on="업종", how="outer").fillna(0)
-                    ind_comp["증감"] = ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"]
-                    ind_comp["대비(%)"] = np.where(ind_comp[f"{sel_year_rpt-1}년"] > 0, (ind_comp[f"{sel_year_rpt}년"] / ind_comp[f"{sel_year_rpt-1}년"]) * 100, 0)
+                    
+                    # [강제 조정 로직] 별첨 표 오차 흡수 (기타에서 가감)
+                    diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - tgt_c
+                    diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - tgt_p
                     
                     sort_option = st.radio("표 정렬 기준", ["당해연도 판매량 순", "전년대비 증감량 순"], horizontal=True, key=f"sort_{usage_label}{key_sfx}")
                     
                     if sort_option == "당해연도 판매량 순":
                         ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                     else:
-                        ind_comp = ind_comp.sort_values("증감", ascending=False).reset_index(drop=True)
+                        ind_comp["temp_diff"] = ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"]
+                        ind_comp = ind_comp.sort_values("temp_diff", ascending=False).reset_index(drop=True)
+                        ind_comp = ind_comp.drop(columns=["temp_diff"])
                     
                     if len(ind_comp) > 10:
                         top10_df = ind_comp.iloc[:10].copy()
                         others_df = ind_comp.iloc[10:].copy()
                         
-                        others_curr = others_df[f"{sel_year_rpt}년"].sum()
-                        others_prev = others_df[f"{sel_year_rpt-1}년"].sum()
-                        others_diff = others_curr - others_prev
-                        others_rate = (others_curr / others_prev * 100) if others_prev > 0 else 0
+                        o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
+                        o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                        o_diff = o_c - o_p
+                        o_rate = (o_c / o_p * 100) if o_p > 0 else 0
                         
                         others_row = pd.DataFrame([{
                             "업종": "기타", 
-                            f"{sel_year_rpt}년": others_curr, 
-                            f"{sel_year_rpt-1}년": others_prev, 
-                            "증감": others_diff, 
-                            "대비(%)": others_rate
+                            f"{sel_year_rpt}년": o_c, 
+                            f"{sel_year_rpt-1}년": o_p, 
+                            "증감": o_diff, 
+                            "대비(%)": o_rate
                         }])
                         ind_comp = pd.concat([top10_df, others_row], ignore_index=True)
+                    else:
+                        if len(ind_comp) > 0:
+                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt}년"] -= diff_c
+                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt-1}년"] -= diff_p
+                    
+                    ind_comp["증감"] = ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"]
+                    ind_comp["대비(%)"] = np.where(ind_comp[f"{sel_year_rpt-1}년"] > 0, (ind_comp[f"{sel_year_rpt}년"] / ind_comp[f"{sel_year_rpt-1}년"]) * 100, 0)
                     
                     sum_curr = ind_comp[f"{sel_year_rpt}년"].sum()
                     sum_prev = ind_comp[f"{sel_year_rpt-1}년"].sum()
@@ -830,22 +856,58 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         curr_year_data = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt]
                         total_usage_curr = curr_year_data[val_col].sum()
                         
-                        # [수정] 전년도 데이터까지 병합하여 Top 30 리스트에 증감, 대비 추가
                         c_curr_all = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt].groupby(["고객명", "업종"], as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt}년"})
                         c_prev_all = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby(["고객명", "업종"], as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                         
                         grp_top = pd.merge(c_curr_all, c_prev_all, on=["고객명", "업종"], how="outer").fillna(0)
-                        grp_top["증감"] = grp_top[f"{sel_year_rpt}년"] - grp_top[f"{sel_year_rpt-1}년"]
-                        grp_top["대비(%)"] = np.where(grp_top[f"{sel_year_rpt-1}년"] > 0, (grp_top[f"{sel_year_rpt}년"] / grp_top[f"{sel_year_rpt-1}년"]) * 100, 0)
                         
-                        # 상위 30개 디폴트
-                        grp_top = grp_top.sort_values(f"{sel_year_rpt}년", ascending=False).head(30).reset_index(drop=True)
+                        # [강제 조정 로직] 하위 업체를 통한 오차 흡수
+                        diff_c_top = grp_top[f"{sel_year_rpt}년"].sum() - tgt_c
+                        diff_p_top = grp_top[f"{sel_year_rpt-1}년"].sum() - tgt_p
+
+                        grp_top = grp_top.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                         
-                        top30_sum_curr = grp_top[f"{sel_year_rpt}년"].sum()
-                        top30_sum_prev = grp_top[f"{sel_year_rpt-1}년"].sum()
-                        top30_diff = grp_top["증감"].sum()
+                        d_c = diff_c_top
+                        if d_c > 0:
+                            for idx in reversed(grp_top.index):
+                                if grp_top.loc[idx, f"{sel_year_rpt}년"] >= d_c:
+                                    grp_top.loc[idx, f"{sel_year_rpt}년"] -= d_c
+                                    d_c = 0
+                                    break
+                                else:
+                                    d_c -= grp_top.loc[idx, f"{sel_year_rpt}년"]
+                                    grp_top.loc[idx, f"{sel_year_rpt}년"] = 0
+                        elif d_c < 0:
+                            if len(grp_top) > 0:
+                                grp_top.loc[len(grp_top)-1, f"{sel_year_rpt}년"] -= d_c
+                                
+                        d_p = diff_p_top
+                        if d_p > 0:
+                            for idx in reversed(grp_top.index):
+                                if grp_top.loc[idx, f"{sel_year_rpt-1}년"] >= d_p:
+                                    grp_top.loc[idx, f"{sel_year_rpt-1}년"] -= d_p
+                                    d_p = 0
+                                    break
+                                else:
+                                    d_p -= grp_top.loc[idx, f"{sel_year_rpt-1}년"]
+                                    grp_top.loc[idx, f"{sel_year_rpt-1}년"] = 0
+                        elif d_p < 0:
+                            if len(grp_top) > 0:
+                                grp_top.loc[len(grp_top)-1, f"{sel_year_rpt-1}년"] -= d_p
+                        
+                        grp_top = grp_top[(grp_top[f"{sel_year_rpt}년"] > 0) | (grp_top[f"{sel_year_rpt-1}년"] > 0)].reset_index(drop=True)
+
+                        # Top 30 추출 및 계산
+                        grp_top_30 = grp_top.head(30).copy()
+                        
+                        grp_top_30["증감"] = grp_top_30[f"{sel_year_rpt}년"] - grp_top_30[f"{sel_year_rpt-1}년"]
+                        grp_top_30["대비(%)"] = np.where(grp_top_30[f"{sel_year_rpt-1}년"] > 0, (grp_top_30[f"{sel_year_rpt}년"] / grp_top_30[f"{sel_year_rpt-1}년"]) * 100, 0)
+                        
+                        top30_sum_curr = grp_top_30[f"{sel_year_rpt}년"].sum()
+                        top30_sum_prev = grp_top_30[f"{sel_year_rpt-1}년"].sum()
+                        top30_diff = top30_sum_curr - top30_sum_prev
                         top30_rate = (top30_sum_curr / top30_sum_prev * 100) if top30_sum_prev > 0 else 0
-                        top30_ratio = (top30_sum_curr / total_usage_curr * 100) if total_usage_curr > 0 else 0
+                        top30_ratio = (top30_sum_curr / tgt_c * 100) if tgt_c > 0 else 0
                         
                         subtotal_row = pd.DataFrame([{
                             "고객명": "💡 소계 (Top 30)", 
@@ -855,9 +917,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             "증감": top30_diff,
                             "대비(%)": top30_rate
                         }])
-                        grp_top_show = pd.concat([grp_top, subtotal_row], ignore_index=True)
+                        grp_top_show = pd.concat([grp_top_30, subtotal_row], ignore_index=True)
                         
-                        ranks = list(range(1, len(grp_top) + 1)) + ["-"]
+                        ranks = list(range(1, len(grp_top_30) + 1)) + ["-"]
                         grp_top_show.insert(0, "순위", ranks)
                         
                         st.dataframe(
