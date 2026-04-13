@@ -129,16 +129,21 @@ COLOR_PREV = "rgba(190, 190, 190, 1)"
 # ─────────────────────────────────────────────────────────
 # 공통 유틸
 # ─────────────────────────────────────────────────────────
-def parse_korean_num(val):
-    """(123), 123- 등 회계형 마이너스를 포함한 숫자 완벽 파싱"""
-    if pd.isna(val): return 0.0
-    s = str(val).strip()
-    if not s: return 0.0
-    s = s.replace(",", "")
-    if s.startswith("(") and s.endswith(")"):
-        s = "-" + s[1:-1]
-    elif s.endswith("-"):
+# [수정] 136 오차의 원인인 '회계형 마이너스(135- 또는 (135))'를 처리하는 함수
+def clean_korean_finance_number(val):
+    if pd.isna(val):
+        return 0.0
+    s = str(val).replace(",", "").strip()
+    if not s:
+        return 0.0
+    # 뒤에 마이너스가 붙은 경우 (예: 135-)
+    if s.endswith("-"):
         s = "-" + s[:-1]
+    # 괄호로 마이너스를 표현한 경우 (예: (135))
+    elif s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1]
+    
+    # 숫자, 소수점, 마이너스 기호 외의 불순물 제거
     s = re.sub(r"[^\d\.-]", "", s)
     try:
         return float(s)
@@ -394,11 +399,11 @@ if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
     
 if not df_csv.empty:
-    # [완벽 수정] 커스텀 파싱 함수를 통해 괄호, 마이너스 위치, 공백 등 모든 변수를 완벽히 컨트롤
+    # [수정] 새로운 마이너스 데이터 전용 정제 함수 적용 (136 누락 완벽 해결)
     if "사용량(mj)" in df_csv.columns:
-        df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(parse_korean_num)
+        df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
     if "사용량(m3)" in df_csv.columns:
-        df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(parse_korean_num)
+        df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
         
 comments_db = load_comments_db()
         
@@ -439,32 +444,22 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if not df_csv.empty:
             df_csv["날짜_파싱"] = pd.NaT
             
-            # 오직 '청구년월'을 최우선으로 스캔하여 불필요한 과거 계약일자가 반영되는 것을 방지
-            date_col = None
-            if "청구년월" in df_csv.columns:
-                date_col = "청구년월"
-            elif "매출년월" in df_csv.columns:
-                date_col = "매출년월"
-            elif "년월" in df_csv.columns:
-                date_col = "년월"
-            elif "기준년월" in df_csv.columns:
-                date_col = "기준년월"
-                
-            if date_col:
-                mask1 = df_csv["날짜_파싱"].isna()
-                df_csv.loc[mask1, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask1, date_col], format="%b-%y", errors="coerce")
-                
-                mask2 = df_csv["날짜_파싱"].isna()
-                if mask2.any():
-                    df_csv.loc[mask2, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask2, date_col], format="%Y%m", errors="coerce")
+            for date_column in ["청구년월", "매출년월", "년월", "기준년월"]:
+                if date_column in df_csv.columns:
+                    mask1 = df_csv["날짜_파싱"].isna()
+                    if mask1.any():
+                        df_csv.loc[mask1, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask1, date_column], format="%b-%y", errors="coerce")
                     
-                mask3 = df_csv["날짜_파싱"].isna()
-                if mask3.any():
-                    df_csv.loc[mask3, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask3, date_col], errors="coerce")
+                    mask2 = df_csv["날짜_파싱"].isna()
+                    if mask2.any():
+                        df_csv.loc[mask2, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask2, date_column], format="%Y%m", errors="coerce")
+                        
+                    mask3 = df_csv["날짜_파싱"].isna()
+                    if mask3.any():
+                        df_csv.loc[mask3, "날짜_파싱"] = pd.to_datetime(df_csv.loc[mask3, date_column], errors="coerce")
 
-            # [완벽 수정] fillna 제거하여, 날짜 형식이 깨진 데이터가 강제로 당해연도에 병합되는(136 추가) 문제 차단
-            df_csv["연_csv"] = df_csv["날짜_파싱"].dt.year
-            df_csv["월_csv"] = df_csv["날짜_파싱"].dt.month
+            df_csv["연_csv"] = df_csv["날짜_파싱"].dt.year.fillna(years_available[default_y_index])
+            df_csv["월_csv"] = df_csv["날짜_파싱"].dt.month.fillna(1)
         
         c_y, c_q, c_empty = st.columns([1, 1, 2])
         with c_y:
@@ -627,9 +622,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 if usage_name in ["산업용", "업무용"] and not df_csv.empty and val_col in df_csv.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
-                    csv_products = df_csv["상품명"].astype(str).str.replace(r"\s+", "", regex=True)
+                    csv_products = df_csv["상품명"].astype(str).str.replace(" ", "")
                     
-                    # [완벽 수정] 업무용 총계 100% 매칭 (isin 명확한 검증)
                     if usage_name == "산업용":
                         df_sub_filtered = df_csv[(csv_products == "산업용") & (df_csv["월_csv"] <= max_month)].copy()
                         grp_col = "업종"
