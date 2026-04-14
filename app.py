@@ -127,7 +127,7 @@ COLOR_PREV = "rgba(190, 190, 190, 1)"
 
 
 # ─────────────────────────────────────────────────────────
-# 공통 유틸
+# 공통 유틸 (여기서 스타일 수정 적용)
 # ─────────────────────────────────────────────────────────
 def clean_korean_finance_number(val):
     """(123), 123- 등 회계형 마이너스를 포함한 숫자 완벽 파싱"""
@@ -155,17 +155,20 @@ def fmt_num_safe(v) -> str:
 
 
 def center_style(styler):
-    """모든 표 숫자 가운데 정렬용 공통 스타일."""
+    """모든 표 숫자 가운데 정렬 및 헤더 진한 배경/흰색 폰트 처리."""
     styler = styler.set_properties(**{"text-align": "center"})
     styler = styler.set_table_styles(
-        [dict(selector="th", props=[("text-align", "center")])]
+        [
+            dict(selector="th", props=[("text-align", "center !important"), ("vertical-align", "middle !important")]),
+            dict(selector="thead th", props=[("background-color", "#1e3a8a !important"), ("color", "white !important"), ("font-weight", "bold !important")])
+        ]
     )
     return styler
 
 def highlight_subtotal(s):
-    """표의 '💡 소계', '💡 총계', '💡 합계' 행을 연한 회색으로 하이라이트."""
+    """표의 '💡 소계', '💡 총계', '💡 합계' 행을 진한 남색 배경 + 흰색 폰트로 하이라이트."""
     is_subtotal = s.astype(str).str.contains('💡 소계|💡 총계|💡 합계')
-    return ['background-color: #f8f9fa; font-weight: bold;' if is_subtotal.any() else '' for _ in s]
+    return ['background-color: #1e3a8a !important; color: white !important; font-weight: bold !important;' if is_subtotal.any() else '' for _ in s]
 
 
 def _clean_base(df: pd.DataFrame) -> pd.DataFrame:
@@ -545,13 +548,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 "전년실적", "YoY 증감", "YoY 대비(%)"
             ]]
             
-            # --- [수정] 다중 헤더 (MultiIndex) 씌우기: "YoY" 아래에 3개 컬럼을 배치하여 완벽히 그룹화 ---
             summary_df.columns = pd.MultiIndex.from_tuples([
                 ("계획대비", "계획"),
                 ("계획대비", "실적"),
                 ("계획대비", "증감"),
                 ("계획대비", "대비(%)"),
-                ("YoY", "전년실적"), # 빈칸 대신 "YoY"로 명시하여 통합 그룹화
+                ("YoY", "전년실적"), 
                 ("YoY", "증감"),
                 ("YoY", "대비(%)")
             ])
@@ -1018,7 +1020,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             render_attachment_report("산업용", 6, key_sfx)
             render_attachment_report("업무용", 7, key_sfx)
         
-        # --- [수정] 🖨️ PDF 인쇄 기능 (컴포넌트로 변경하여 Javascript 권한 획득) ---
+        # --- 🖨️ PDF 인쇄 기능 ---
         st.markdown("<hr style='border-top: 2px solid #bbb; margin: 40px 0 20px 0;'>", unsafe_allow_html=True)
         st.markdown("### 🖨️ 보고서 출력")
         
