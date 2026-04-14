@@ -444,6 +444,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if not df_csv_tab.empty:
             if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
                 df_csv_tab["사용량(mj)"] = df_csv_tab["사용량(mj)"] / 1000.0
+            # --- [수정] 부피(천m³) 탭일 경우 CSV의 m³ 데이터를 1000으로 나누어 단위를 일치시킵니다. ---
+            elif unit_str == "천m³" and "사용량(m3)" in df_csv_tab.columns:
+                df_csv_tab["사용량(m3)"] = df_csv_tab["사용량(m3)"] / 1000.0
                 
             df_csv_tab["날짜_파싱"] = pd.NaT
             
