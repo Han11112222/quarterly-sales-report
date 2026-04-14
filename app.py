@@ -522,7 +522,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             curr_act = df_base[(df_base["연"] == sel_year_rpt) & (df_base["계획/실적"] == "실적")].groupby("그룹")["값"].sum()
             prev_act = df_base[(df_base["연"] == sel_year_rpt-1) & (df_base["계획/실적"] == "실적")].groupby("그룹")["값"].sum()
             
-            # --- [Han형님 요청 반영부] YoY 증감 추가 및 MultiIndex(다중 헤더) 적용 ---
             summary_df = pd.DataFrame({
                 "계획": curr_plan,
                 "실적": curr_act,
@@ -532,41 +531,34 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             summary_df["계획대비 증감"] = summary_df["실적"] - summary_df["계획"]
             summary_df["계획대비 달성률(%)"] = np.where(summary_df["계획"] > 0, (summary_df["실적"] / summary_df["계획"]) * 100, 0)
             
-            # YoY 증감 컬럼 추가 (증감률 앞 위치)
             summary_df["YoY 증감"] = summary_df["실적"] - summary_df["전년실적"]
             summary_df["YoY 대비(%)"] = np.where(summary_df["전년실적"] > 0, (summary_df["실적"] / summary_df["전년실적"]) * 100, 0)
             
-            # 합계 로직
             total_row = summary_df.sum(numeric_only=True)
             total_row["계획대비 달성률(%)"] = (total_row["실적"] / total_row["계획"]) * 100 if total_row["계획"] else 0
             total_row["YoY 대비(%)"] = (total_row["실적"] / total_row["전년실적"]) * 100 if total_row["전년실적"] else 0
             
             summary_df.loc["💡 합계"] = total_row
             
-            # 컬럼 노출 순서 재정의
             summary_df = summary_df[[
                 "계획", "실적", "계획대비 증감", "계획대비 달성률(%)", 
                 "전년실적", "YoY 증감", "YoY 대비(%)"
             ]]
             
-            # 다중 헤더 (MultiIndex) 씌우기
+            # --- [수정] 다중 헤더 (MultiIndex) 씌우기: "YoY" 아래에 3개 컬럼을 배치하여 완벽히 그룹화 ---
             summary_df.columns = pd.MultiIndex.from_tuples([
                 ("계획대비", "계획"),
                 ("계획대비", "실적"),
                 ("계획대비", "증감"),
                 ("계획대비", "대비(%)"),
-                (" ", "전년실적"),
+                ("YoY", "전년실적"), # 빈칸 대신 "YoY"로 명시하여 통합 그룹화
                 ("YoY", "증감"),
                 ("YoY", "대비(%)")
             ])
             
-            # 인덱스를 풀어서 일반 컬럼으로 올리기
             summary_df = summary_df.reset_index()
-            # Pandas의 MultiIndex DataFrame에서 reset_index를 하면 ('그룹', '') 형태의 튜플로 나옵니다.
-            # 두 번째 사진처럼 최상단 구분을 '구분'으로 바꿔줍니다.
             summary_df.rename(columns={("그룹", ""): ("구분", "그룹"), ("index", ""): ("구분", "그룹")}, inplace=True)
             
-            # UI 출력부 (MultiIndex 포맷팅 반영)
             st.dataframe(
                 center_style(
                     summary_df.style.format({
@@ -574,14 +566,13 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         ("계획대비", "실적"): "{:,.0f}",
                         ("계획대비", "증감"): "{:,.0f}",
                         ("계획대비", "대비(%)"): "{:,.1f}",
-                        (" ", "전년실적"): "{:,.0f}",
+                        ("YoY", "전년실적"): "{:,.0f}",
                         ("YoY", "증감"): "{:,.0f}",
                         ("YoY", "대비(%)"): "{:,.1f}"
                     }).apply(highlight_subtotal, axis=1)
                 ), 
                 use_container_width=True, hide_index=True
             )
-            # -----------------------------------------------------------
         else:
             st.warning("👈 좌측 사이드바에서 판매량(.xlsx) 파일을 업로드하거나 레포 파일을 사용해 주세요.")
             
@@ -661,7 +652,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), xaxis_title="월", yaxis_title=f"판매량({unit_str})", margin=dict(t=10, b=10, l=10, r=10), height=420, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_m, use_container_width=True)
                     
-                # 엑셀과 총계를 일치시키기 위한 강제 보정 로직 (기타에서 가감)
                 if usage_name in ["산업용", "업무용"] and not df_csv_tab.empty and val_col in df_csv_tab.columns:
                     st.markdown(f"**■ 세부 업종별 판매량 비교 (당해연도 vs 전년도)**")
                     
@@ -683,7 +673,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         
                         ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on=grp_col, how="outer").fillna(0)
                         
-                        # [강제 조정 로직] 엑셀 총계(sum_act, sum_prev)와 맞추기 위한 오차 흡수
                         diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - sum_act
                         diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - sum_prev
                         
@@ -758,7 +747,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 
                 df_sub_filtered = df_sub[df_sub["월_csv"] <= max_month]
                 
-                # 엑셀 기준 총계 확보 (정답)
                 df_u_target = df_long_rpt[(df_long_rpt["그룹"] == usage_label) & (df_long_rpt["월"] <= max_month)]
                 tgt_c = df_u_target[(df_u_target["연"] == sel_year_rpt) & (df_u_target["계획/실적"] == "실적")]["값"].sum()
                 tgt_p = df_u_target[(df_u_target["연"] == sel_year_rpt-1) & (df_u_target["계획/실적"] == "실적")]["값"].sum()
@@ -770,7 +758,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     
                     ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on="업종", how="outer").fillna(0)
                     
-                    # [강제 조정 로직] 별첨 표 오차 흡수 (기타에서 가감)
                     diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - tgt_c
                     diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - tgt_p
                     
@@ -895,7 +882,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         
                         grp_top = pd.merge(c_curr_all, c_prev_all, on=["고객명", "업종"], how="outer").fillna(0)
                         
-                        # [강제 조정 로직] 하위 업체를 통한 오차 흡수
                         diff_c_top = grp_top[f"{sel_year_rpt}년"].sum() - tgt_c
                         diff_p_top = grp_top[f"{sel_year_rpt-1}년"].sum() - tgt_p
 
@@ -931,7 +917,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         
                         grp_top = grp_top[(grp_top[f"{sel_year_rpt}년"] > 0) | (grp_top[f"{sel_year_rpt-1}년"] > 0)].reset_index(drop=True)
 
-                        # Top 30 추출 및 계산
                         grp_top_30 = grp_top.head(30).copy()
                         
                         grp_top_30["증감"] = grp_top_30[f"{sel_year_rpt}년"] - grp_top_30[f"{sel_year_rpt-1}년"]
@@ -1033,12 +1018,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             render_attachment_report("산업용", 6, key_sfx)
             render_attachment_report("업무용", 7, key_sfx)
         
-        # --- 🖨️ PDF 인쇄 기능 ---
+        # --- [수정] 🖨️ PDF 인쇄 기능 (컴포넌트로 변경하여 Javascript 권한 획득) ---
         st.markdown("<hr style='border-top: 2px solid #bbb; margin: 40px 0 20px 0;'>", unsafe_allow_html=True)
         st.markdown("### 🖨️ 보고서 출력")
         
-        st.markdown("""
-            <button onclick="window.print()" style="padding: 12px 20px; font-size: 16px; border-radius: 8px; background-color: #1e3a8a; color: white; border: none; cursor: pointer; width: 100%; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        st.components.v1.html("""
+            <button onclick="window.parent.print()" style="padding: 12px 20px; font-size: 16px; border-radius: 8px; background-color: #1e3a8a; color: white; border: none; cursor: pointer; width: 100%; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 2px;">
                 🖨️ 현재 화면 전체를 PDF로 다운로드 (인쇄)
             </button>
-        """, unsafe_allow_html=True)
+        """, height=70)
