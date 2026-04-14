@@ -522,32 +522,66 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             curr_act = df_base[(df_base["연"] == sel_year_rpt) & (df_base["계획/실적"] == "실적")].groupby("그룹")["값"].sum()
             prev_act = df_base[(df_base["연"] == sel_year_rpt-1) & (df_base["계획/실적"] == "실적")].groupby("그룹")["값"].sum()
             
+            # --- [Han형님 요청 반영부] YoY 증감 추가 및 MultiIndex(다중 헤더) 적용 ---
             summary_df = pd.DataFrame({
-                f"{sel_year_rpt}년 계획": curr_plan,
-                f"{sel_year_rpt}년 실적": curr_act,
-                f"{sel_year_rpt-1}년 실적": prev_act
+                "계획": curr_plan,
+                "실적": curr_act,
+                "전년실적": prev_act
             }).fillna(0)
             
-            summary_df["계획대비 차이"] = summary_df[f"{sel_year_rpt}년 실적"] - summary_df[f"{sel_year_rpt}년 계획"]
-            summary_df["달성률(%)"] = np.where(summary_df[f"{sel_year_rpt}년 계획"] > 0, (summary_df[f"{sel_year_rpt}년 실적"] / summary_df[f"{sel_year_rpt}년 계획"]) * 100, 0)
-            summary_df["전년대비 증감률(%)"] = np.where(summary_df[f"{sel_year_rpt-1}년 실적"] > 0, (summary_df[f"{sel_year_rpt}년 실적"] / summary_df[f"{sel_year_rpt-1}년 실적"]) * 100, 0)
+            summary_df["계획대비 증감"] = summary_df["실적"] - summary_df["계획"]
+            summary_df["계획대비 달성률(%)"] = np.where(summary_df["계획"] > 0, (summary_df["실적"] / summary_df["계획"]) * 100, 0)
             
+            # YoY 증감 컬럼 추가 (증감률 앞 위치)
+            summary_df["YoY 증감"] = summary_df["실적"] - summary_df["전년실적"]
+            summary_df["YoY 대비(%)"] = np.where(summary_df["전년실적"] > 0, (summary_df["실적"] / summary_df["전년실적"]) * 100, 0)
+            
+            # 합계 로직
             total_row = summary_df.sum(numeric_only=True)
-            total_row["달성률(%)"] = (total_row[f"{sel_year_rpt}년 실적"] / total_row[f"{sel_year_rpt}년 계획"]) * 100 if total_row[f"{sel_year_rpt}년 계획"] else 0
-            total_row["전년대비 증감률(%)"] = (total_row[f"{sel_year_rpt}년 실적"] / total_row[f"{sel_year_rpt-1}년 실적"]) * 100 if total_row[f"{sel_year_rpt-1}년 실적"] else 0
+            total_row["계획대비 달성률(%)"] = (total_row["실적"] / total_row["계획"]) * 100 if total_row["계획"] else 0
+            total_row["YoY 대비(%)"] = (total_row["실적"] / total_row["전년실적"]) * 100 if total_row["전년실적"] else 0
             
             summary_df.loc["💡 합계"] = total_row
-            summary_df = summary_df.reset_index().rename(columns={"index": "용도"})
             
+            # 컬럼 노출 순서 재정의
+            summary_df = summary_df[[
+                "계획", "실적", "계획대비 증감", "계획대비 달성률(%)", 
+                "전년실적", "YoY 증감", "YoY 대비(%)"
+            ]]
+            
+            # 다중 헤더 (MultiIndex) 씌우기
+            summary_df.columns = pd.MultiIndex.from_tuples([
+                ("계획대비", "계획"),
+                ("계획대비", "실적"),
+                ("계획대비", "증감"),
+                ("계획대비", "대비(%)"),
+                (" ", "전년실적"),
+                ("YoY", "증감"),
+                ("YoY", "대비(%)")
+            ])
+            
+            # 인덱스를 풀어서 일반 컬럼으로 올리기
+            summary_df = summary_df.reset_index()
+            # Pandas의 MultiIndex DataFrame에서 reset_index를 하면 ('그룹', '') 형태의 튜플로 나옵니다.
+            # 두 번째 사진처럼 최상단 구분을 '구분'으로 바꿔줍니다.
+            summary_df.rename(columns={("그룹", ""): ("구분", "그룹"), ("index", ""): ("구분", "그룹")}, inplace=True)
+            
+            # UI 출력부 (MultiIndex 포맷팅 반영)
             st.dataframe(
                 center_style(
                     summary_df.style.format({
-                        f"{sel_year_rpt}년 계획": "{:,.0f}", f"{sel_year_rpt}년 실적": "{:,.0f}", f"{sel_year_rpt-1}년 실적": "{:,.0f}",
-                        "계획대비 차이": "{:,.0f}", "달성률(%)": "{:,.1f}", "전년대비 증감률(%)": "{:,.1f}"
+                        ("계획대비", "계획"): "{:,.0f}",
+                        ("계획대비", "실적"): "{:,.0f}",
+                        ("계획대비", "증감"): "{:,.0f}",
+                        ("계획대비", "대비(%)"): "{:,.1f}",
+                        (" ", "전년실적"): "{:,.0f}",
+                        ("YoY", "증감"): "{:,.0f}",
+                        ("YoY", "대비(%)"): "{:,.1f}"
                     }).apply(highlight_subtotal, axis=1)
                 ), 
                 use_container_width=True, hide_index=True
             )
+            # -----------------------------------------------------------
         else:
             st.warning("👈 좌측 사이드바에서 판매량(.xlsx) 파일을 업로드하거나 레포 파일을 사용해 주세요.")
             
