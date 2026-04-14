@@ -127,7 +127,7 @@ COLOR_PREV = "rgba(190, 190, 190, 1)"
 
 
 # ─────────────────────────────────────────────────────────
-# 공통 유틸 (여기서 스타일 수정 적용)
+# 공통 유틸 (테이블 스타일링)
 # ─────────────────────────────────────────────────────────
 def clean_korean_finance_number(val):
     """(123), 123- 등 회계형 마이너스를 포함한 숫자 완벽 파싱"""
@@ -155,20 +155,21 @@ def fmt_num_safe(v) -> str:
 
 
 def center_style(styler):
-    """모든 표 숫자 가운데 정렬 및 헤더 진한 배경/흰색 폰트 처리."""
+    """모든 표 숫자 가운데 정렬 및 상단 헤더 진한 남색/흰색 글씨 처리."""
     styler = styler.set_properties(**{"text-align": "center"})
     styler = styler.set_table_styles(
         [
-            dict(selector="th", props=[("text-align", "center !important"), ("vertical-align", "middle !important")]),
-            dict(selector="thead th", props=[("background-color", "#1e3a8a !important"), ("color", "white !important"), ("font-weight", "bold !important")])
+            dict(selector="th", props=[("text-align", "center"), ("vertical-align", "middle"), ("background-color", "#1e3a8a"), ("color", "#ffffff"), ("font-weight", "bold")]),
+            dict(selector="thead th", props=[("background-color", "#1e3a8a"), ("color", "#ffffff"), ("font-weight", "bold")]),
+            dict(selector="tbody tr th", props=[("background-color", "#1e3a8a"), ("color", "#ffffff"), ("font-weight", "bold")])
         ]
     )
     return styler
 
 def highlight_subtotal(s):
-    """표의 '💡 소계', '💡 총계', '💡 합계' 행을 진한 남색 배경 + 흰색 폰트로 하이라이트."""
+    """표의 '💡 소계', '💡 총계', '💡 합계' 행을 상단과 동일한 진한 남색 배경 + 흰색 폰트로 하이라이트."""
     is_subtotal = s.astype(str).str.contains('💡 소계|💡 총계|💡 합계')
-    return ['background-color: #1e3a8a !important; color: white !important; font-weight: bold !important;' if is_subtotal.any() else '' for _ in s]
+    return ['background-color: #1e3a8a; color: #ffffff; font-weight: bold;' if is_subtotal.any() else '' for _ in s]
 
 
 def _clean_base(df: pd.DataFrame) -> pd.DataFrame:
@@ -441,7 +442,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         df_csv_tab = df_csv.copy()
         
         if not df_csv_tab.empty:
-            # 열량 탭(GJ)일 경우에만 별첨 데이터(MJ)를 1000으로 나누어 단위를 일치시킵니다.
             if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
                 df_csv_tab["사용량(mj)"] = df_csv_tab["사용량(mj)"] / 1000.0
                 
@@ -1023,6 +1023,20 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         # --- 🖨️ PDF 인쇄 기능 ---
         st.markdown("<hr style='border-top: 2px solid #bbb; margin: 40px 0 20px 0;'>", unsafe_allow_html=True)
         st.markdown("### 🖨️ 보고서 출력")
+        
+        # 인쇄 창이 떴을 때, 사이드바나 인쇄 버튼 등을 깔끔하게 숨겨주는 CSS 주입
+        st.markdown("""
+            <style>
+            @media print {
+                /* 불필요한 Streamlit 기본 UI 요소 숨김 */
+                header[data-testid="stHeader"] { display: none !important; }
+                section[data-testid="stSidebar"] { display: none !important; }
+                div[data-testid="stToolbar"] { display: none !important; }
+                /* 인쇄 버튼(iframe 형태) 자체를 숨김 */
+                iframe[title="st.iframe"] { display: none !important; }
+            }
+            </style>
+        """, unsafe_allow_html=True)
         
         st.components.v1.html("""
             <button onclick="window.parent.print()" style="padding: 12px 20px; font-size: 16px; border-radius: 8px; background-color: #1e3a8a; color: white; border: none; cursor: pointer; width: 100%; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 2px;">
