@@ -11,6 +11,7 @@ import matplotlib as mpl
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from github import Github  # 🟢 GitHub 연동을 위한 라이브러리 추가
 
 
 # ─────────────────────────────────────────────────────────
@@ -34,9 +35,10 @@ DEFAULT_SALES_XLSX = "판매량(계획_실적).xlsx"
 DEFAULT_CSV = "가정용외_202601.csv"
 
 # ─────────────────────────────────────────────────────────
-# 코멘트 DB 저장 및 UI 유틸 (PW: 1234)
+# 🟢 코멘트 DB 저장 및 UI 유틸 (PW: 1234) - GitHub 실시간 Commit 버전
 # ─────────────────────────────────────────────────────────
 COMMENT_DB_FILE = "report_comments_db.json"
+REPO_NAME = "Han11112222/quarterly-sales-report"  # 🟢 확인된 레포지토리 이름 적용
 
 def load_comments_db():
     if os.path.exists(COMMENT_DB_FILE):
@@ -48,8 +50,34 @@ def load_comments_db():
     return {}
 
 def save_comments_db(db_data):
+    """
+    로컬에 먼저 json을 저장한 뒤, 
+    스트림릿 Secrets에 저장된 토큰을 이용해 깃허브 원본 파일도 업데이트합니다.
+    """
+    # 1. 로컬(임시 서버) 파일 업데이트
     with open(COMMENT_DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db_data, f, ensure_ascii=False, indent=4)
+        
+    # 2. 깃허브 레포지토리 직접 업데이트 (Commit & Push)
+    try:
+        if "GITHUB_TOKEN" in st.secrets:
+            token = st.secrets["GITHUB_TOKEN"]
+            g = Github(token)
+            repo = g.get_repo(REPO_NAME)
+            
+            # 깃허브에 올릴 json 텍스트 내용 준비
+            content_string = json.dumps(db_data, ensure_ascii=False, indent=4)
+            
+            try:
+                # 깃허브에 파일이 이미 존재하는지 확인 후 덮어쓰기(Update)
+                contents = repo.get_contents(COMMENT_DB_FILE)
+                repo.update_file(contents.path, "Update comments via Streamlit App", content_string, contents.sha)
+            except:
+                # 파일이 없다면 새로 만들기(Create)
+                repo.create_file(COMMENT_DB_FILE, "Create comments db via Streamlit App", content_string)
+    except Exception as e:
+        # 로컬 환경이거나 토큰이 없어서 나는 에러는 앱 구동에 방해되지 않게 패스합니다.
+        pass
 
 def render_comment_section(title, db_key, curr_db, comments_db, height, placeholder, widget_key):
     """개별 코멘트 저장 및 PW(1234) 보안 수정/삭제 UI 생성 함수"""
@@ -444,7 +472,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if not df_csv_tab.empty:
             if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
                 df_csv_tab["사용량(mj)"] = df_csv_tab["사용량(mj)"] / 1000.0
-            # --- [수정] 부피(천m³) 탭일 경우 CSV의 m³ 데이터를 1000으로 나누어 단위를 일치시킵니다. ---
             elif unit_str == "천m³" and "사용량(m3)" in df_csv_tab.columns:
                 df_csv_tab["사용량(m3)"] = df_csv_tab["사용량(m3)"] / 1000.0
                 
@@ -919,7 +946,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         elif d_p < 0:
                             if len(grp_top) > 0:
                                 grp_top.loc[len(grp_top)-1, f"{sel_year_rpt-1}년"] -= d_p
-                        
+                                
                         grp_top = grp_top[(grp_top[f"{sel_year_rpt}년"] > 0) | (grp_top[f"{sel_year_rpt-1}년"] > 0)].reset_index(drop=True)
 
                         grp_top_30 = grp_top.head(30).copy()
