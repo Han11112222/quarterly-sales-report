@@ -343,6 +343,11 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
 st.title("📊 판매량 분석 보고서")
 
 with st.sidebar:
+    # 🟢 보고서 모드 설정 (2가지로 분리)
+    st.header("🏢 보고서 모드 설정")
+    app_mode = st.radio("조회 모드 선택", ["for Executive", "for Sharing"])
+    st.markdown("---")
+
     st.header("📂 데이터 불러오기")
 
     st.subheader("1. 판매량 데이터 (필수)")
@@ -399,6 +404,19 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────
 # 본문 로직
 # ─────────────────────────────────────────────────────────
+
+# 🟢 for Sharing 모드 최상단 비밀번호 체크
+if app_mode == "for Sharing":
+    st.info("🔒 'for Sharing' 모드입니다. 내용을 확인하려면 비밀번호를 입력해주세요.")
+    share_pw = st.text_input("접근 비밀번호 (PW)", type="password")
+    if share_pw != "1234":
+        if share_pw != "":
+            st.error("❌ 비밀번호가 일치하지 않습니다.")
+        st.stop()  # 비밀번호가 맞지 않으면 하단 코드 실행 차단
+    else:
+        st.success("🔓 인증되었습니다. 공유용 화면을 표시합니다.")
+
+
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
 if 'excel_bytes' in locals() and excel_bytes is not None:
     sheets_rpt = load_all_sheets(excel_bytes)
@@ -448,7 +466,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             val_col = "사용량(m3)"
             key_sfx = "_vol"
 
-        st.markdown("#### 📅 보고서 기준 일자") 
+        st.markdown(f"#### 📅 보고서 기준 일자 ({app_mode})") 
         
         years_available = [2024, 2025, 2026]
         default_y_index = len(years_available) - 1
@@ -510,7 +528,10 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         
         max_month = int(sel_quarter[0]) * 3 
         
-        report_db_key = f"{sel_year_rpt}_{sel_quarter[:2]}_{unit_str}"
+        # 🟢 모드에 따라 독립적인 코멘트 DB 키를 생성합니다.
+        mode_suffix = "_sharing" if app_mode == "for Sharing" else "_executive"
+        report_db_key = f"{sel_year_rpt}_{sel_quarter[:2]}_{unit_str}{mode_suffix}"
+        
         if report_db_key not in comments_db:
             comments_db[report_db_key] = {}
         curr_db = comments_db[report_db_key]
@@ -544,7 +565,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             with col_d2:
                 render_rate_donut(achieve_rate_prev, COLOR_PREV, "전년대비 증감률")
 
-        render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120, f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성. 주요 특이사항은... (자유롭게 입력하세요)", f"glance_{key_sfx}")
+        render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120, f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성. 주요 특이사항은... (자유롭게 입력하세요)", f"glance_{key_sfx}{mode_suffix}")
         
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
@@ -608,12 +629,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         else:
             st.warning("👈 좌측 사이드바에서 판매량(.xlsx) 파일을 업로드하거나 레포 파일을 사용해 주세요.")
             
-        render_comment_section("📝 주요 증감 원인 작성 (One Page Review)", "review", curr_db, comments_db, 150, "표를 바탕으로 전체적인 실적 증감 원인을 종합적으로 분석해 주세요.", f"review_{key_sfx}")
+        render_comment_section("📝 주요 증감 원인 작성 (One Page Review)", "review", curr_db, comments_db, 150, "표를 바탕으로 전체적인 실적 증감 원인을 종합적으로 분석해 주세요.", f"review_{key_sfx}{mode_suffix}")
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
         # --- 4, 5, 6. 용도별 판매량 분석 ---
-        def render_usage_trend_report(usage_name, section_num, key_sfx, db_key):
+        def render_usage_trend_report(usage_name, section_num, key_sfx, db_key, m_suffix):
             
             if df_long_rpt.empty:
                 st.markdown(f"#### 📈 {section_num}. 용도별 판매량 분석 : {usage_name}")
@@ -745,12 +766,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     else:
                         st.info("해당 용도의 세부 업종 데이터가 없습니다.")
                 
-            render_comment_section(f"📝 {usage_name} 세부 코멘트 작성", db_key, curr_db, comments_db, 100, f"{usage_name}의 월별 편차 원인 및 특이사항을 기록하세요.", f"{usage_name}_{key_sfx}")
+            render_comment_section(f"📝 {usage_name} 세부 코멘트 작성", db_key, curr_db, comments_db, 100, f"{usage_name}의 월별 편차 원인 및 특이사항을 기록하세요.", f"{usage_name}_{key_sfx}{m_suffix}")
             st.markdown("<br>", unsafe_allow_html=True)
 
-        render_usage_trend_report("가정용", 3, key_sfx, "home")
-        render_usage_trend_report("산업용", 4, key_sfx, "ind")
-        render_usage_trend_report("업무용", 5, key_sfx, "biz")
+        render_usage_trend_report("가정용", 3, key_sfx, "home", mode_suffix)
+        render_usage_trend_report("산업용", 4, key_sfx, "ind", mode_suffix)
+        render_usage_trend_report("업무용", 5, key_sfx, "biz", mode_suffix)
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
