@@ -109,7 +109,7 @@ def render_comment_section(title, db_key, curr_db, comments_db, height, placehol
             st.rerun()
 
 # ─────────────────────────────────────────────────────────
-# 유틸리티 함수들 (데이터 매핑, 스타일링 등)
+# 공통 유틸리티
 # ─────────────────────────────────────────────────────────
 USE_COL_TO_GROUP: Dict[str, str] = {
     "취사용": "가정용", "개별난방용": "가정용", "중앙난방용": "가정용", "자가열전용": "가정용",
@@ -218,19 +218,17 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
     st.plotly_chart(fig, use_container_width=False)
 
 # ─────────────────────────────────────────────────────────
-# 메인 레이아웃 (사이드바 - 모드 선택 추가)
+# 메인 레이아웃 (사이드바 - 모드 명칭 변경)
 # ─────────────────────────────────────────────────────────
 st.title("📊 판매량 분석 보고서")
 
 with st.sidebar:
-    # 🟢 탭 및 모드 구분 추가
     st.header("🏢 보고서 모드 설정")
-    app_mode = st.radio("작업/조회 모드 선택", ["마케팅팀 내부용", "for Sharing (for Executive)"])
+    # 🟢 요청하신 이름으로 변경
+    app_mode = st.radio("조회 모드 선택", ["마케팅팀 내부용", "for Sharing", "for Executive"])
     
     st.markdown("---")
     st.header("📂 데이터 불러오기")
-
-    st.subheader("1. 판매량 데이터 (필수)")
     src_sales = st.radio("판매량 데이터 소스", ["레포 파일 사용", "엑셀 업로드(.xlsx)"], index=0, key="rpt_sales_src")
     excel_bytes = None
     if src_sales == "엑셀 업로드(.xlsx)":
@@ -244,7 +242,7 @@ with st.sidebar:
     st.subheader("2. 업종별 상세 (별첨용)")
     src_csv = st.radio("업종별 데이터 소스", ["레포 파일 사용", "CSV 업로드(.csv)"], index=0, key="csv_src")
     if src_csv == "CSV 업로드(.csv)":
-        up_csvs = st.file_uploader("가정용외_*.csv 형식 (다중 업로드 가능)", type=["csv"], accept_multiple_files=True, key="csv_uploader")
+        up_csvs = st.file_uploader("가정용외_*.csv 형식", type=["csv"], accept_multiple_files=True, key="csv_uploader")
         if up_csvs:
             df_list = []
             for f in up_csvs:
@@ -257,6 +255,18 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────
 # 본문 로직
 # ─────────────────────────────────────────────────────────
+
+# 🟢 for Sharing 모드인 경우 최상단 비밀번호 체크 추가
+if app_mode == "for Sharing":
+    st.info("🔒 'for Sharing' 모드입니다. 비밀번호를 입력해주세요.")
+    share_pw = st.text_input("접근 비밀번호 (PW)", type="password")
+    if share_pw != "1234":
+        if share_pw != "":
+            st.error("❌ 비밀번호가 틀렸습니다.")
+        st.stop() # 비밀번호가 맞지 않으면 아래 코드를 실행하지 않음
+    else:
+        st.success("🔓 인증되었습니다. 공유용 화면을 표시합니다.")
+
 long_dict_rpt = build_long_dict(load_all_sheets(excel_bytes)) if excel_bytes else {}
 df_csv = pd.DataFrame()
 
@@ -300,24 +310,16 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 default_y_index = years_available.index(max_year) if max_year in years_available else len(years_available)-1
                 default_q_index = max(0, min(3, int((max_month - 1) // 3)))
 
-        df_csv_tab = df_csv.copy()
-        if not df_csv_tab.empty:
-            if val_col in df_csv_tab.columns: df_csv_tab[val_col] = df_csv_tab[val_col] / 1000.0
-            df_csv_tab["날짜_파싱"] = pd.NaT
-            for d_col in ["청구년월", "매출년월", "년월", "기준년월"]:
-                if d_col in df_csv_tab.columns:
-                    for fmt in ["%b-%y", "%Y%m", None]:
-                        mask = df_csv_tab["날짜_파싱"].isna()
-                        if mask.any(): df_csv_tab.loc[mask, "날짜_파싱"] = pd.to_datetime(df_csv_tab.loc[mask, d_col], format=fmt, errors="coerce")
-            df_csv_tab["연_csv"], df_csv_tab["월_csv"] = df_csv_tab["날짜_파싱"].dt.year, df_csv_tab["날짜_파싱"].dt.month
-
         c_y, c_q, _ = st.columns([1, 1, 2])
         sel_year_rpt = c_y.selectbox("기준 연도", years_available, index=default_y_index, key=f"rpt_yr{key_sfx}")
         sel_quarter = c_q.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
         max_month = int(sel_quarter[0]) * 3 
 
-        # 🟢 중요: 모드에 따라 데이터베이스 키를 분리합니다.
-        mode_suffix = "" if app_mode == "마케팅팀 내부용" else "_executive"
+        # 🟢 모드별 고유 이름표 생성 (내부용: "", 공유용: "_sharing", 경영진용: "_executive")
+        mode_suffix = ""
+        if app_mode == "for Sharing": mode_suffix = "_sharing"
+        elif app_mode == "for Executive": mode_suffix = "_executive"
+        
         report_db_key = f"{sel_year_rpt}_{sel_quarter[:2]}_{unit_str}{mode_suffix}"
         
         if report_db_key not in comments_db: comments_db[report_db_key] = {}
@@ -340,7 +342,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             with cm3: render_metric_card("🔄", f"{sel_year_rpt-1}년 실적", f"{fmt_num_safe(t_prev)} {unit_str}", f"차이: {'+' if t_act-t_prev>0 else ''}{fmt_num_safe(t_act-t_prev)} ({r_prev:.1f}%, 전년대비)", COLOR_PREV)
             with cd1: render_rate_donut(r_plan, COLOR_ACT, "계획대비 달성률")
             with cd2: render_rate_donut(r_prev, COLOR_PREV, "전년대비 증감률")
-        render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120, "주요 특이사항을 입력하세요.", f"glance_{key_sfx}{mode_suffix}")
+        render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120, "특이사항을 입력하세요.", f"glance_{key_sfx}{mode_suffix}")
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
@@ -363,8 +365,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
-        # 3, 4, 5. 용도별 분석 (가정/산업/업무)
-        def render_usage_trend_report(usage_name, section_num, key_sfx, db_key, mode_suffix):
+        # 3, 4, 5. 용도별 분석
+        def render_usage_trend_report(usage_name, section_num, key_sfx, db_key, m_suffix):
             if df_long_rpt.empty: return
             df_u = df_long_rpt[(df_long_rpt["그룹"] == usage_name) & (df_long_rpt["월"] <= max_month)]
             p_plan, p_act, p_prev = df_u[(df_u["연"]==sel_year_rpt) & (df_u["계획/실적"]=="계획")].groupby("월")["값"].sum(), df_u[(df_u["연"]==sel_year_rpt) & (df_u["계획/실적"]=="실적")].groupby("월")["값"].sum(), df_u[(df_u["연"]==sel_year_rpt-1) & (df_u["계획/실적"]=="실적")].groupby("월")["값"].sum()
@@ -386,15 +388,13 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     fig_m.add_trace(go.Bar(x=m_list, y=vals, name=label, marker_color=color, text=[f"{v:,.0f}" if v>0 else "" for v in vals], textposition='auto'))
                 fig_m.update_layout(barmode='group', xaxis=dict(tickmode='linear', tick0=1, dtick=1), margin=dict(t=10, b=10, l=10, r=10), height=400, legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
                 st.plotly_chart(fig_m, use_container_width=True)
-            render_comment_section(f"📝 {usage_name} 세부 코멘트 작성", db_key, curr_db, comments_db, 100, "세부 내용을 입력하세요.", f"{usage_name}_{key_sfx}{mode_suffix}")
+            render_comment_section(f"📝 {usage_name} 세부 코멘트 작성", db_key, curr_db, comments_db, 100, "상세 내용을 입력하세요.", f"{usage_name}_{key_sfx}{m_suffix}")
 
         render_usage_trend_report("가정용", 3, key_sfx, "home", mode_suffix)
         render_usage_trend_report("산업용", 4, key_sfx, "ind", mode_suffix)
         render_usage_trend_report("업무용", 5, key_sfx, "biz", mode_suffix)
 
-        # 6, 7. 별첨 (생략 없이 기존 로직 유지하되 mode_suffix 적용)
-        # ... (이하 별첨 및 PDF 출력 로직은 기존과 동일하며 widget_key에 mode_suffix만 추가됨)
-        st.markdown("<hr style='border-top: 2px solid #bbb; margin: 40px 0 20px 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         st.markdown("### 🖨️ 보고서 출력")
         st.markdown("""<style>@media print { header, section[data-testid="stSidebar"], div[data-testid="stToolbar"], iframe { display: none !important; } }</style>""", unsafe_allow_html=True)
         st.components.v1.html(f"""<button onclick="window.parent.print()" style="padding: 12px 20px; font-size: 16px; border-radius: 8px; background-color: #1e3a8a; color: white; border: none; cursor: pointer; width: 100%; font-weight: bold;">🖨️ {app_mode} 화면 전체 PDF 다운로드</button>""", height=70)
