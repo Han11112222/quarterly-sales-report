@@ -454,6 +454,15 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
                 st.plotly_chart(fig_stack, use_container_width=True)
                 
+                # 🟢 스택 그래프 상세 데이터 표
+                st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
+                stack_pivot = stack_grp.pivot(index="연", columns="그룹", values="값").fillna(0)
+                stack_pivot["합계"] = stack_pivot.sum(axis=1)
+                stack_pivot = stack_pivot.reset_index().rename(columns={"연": "연도"})
+                
+                format_dict = {col: "{:,.0f}" for col in stack_pivot.columns if col != "연도"}
+                st.dataframe(center_style(stack_pivot.style.format(format_dict)), use_container_width=True, hide_index=True)
+
                 # 요약 박스 (1번 그래프 하단)
                 total_2025 = stack_grp[stack_grp["연"] == 2025]["값"].sum() if 2025 in stack_grp["연"].values else stack_grp[stack_grp["연"] == stack_grp["연"].max()]["값"].sum()
                 last_year = 2025 if 2025 in stack_grp["연"].values else stack_grp["연"].max()
@@ -518,6 +527,21 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             fig_tree.update_layout(height=550, margin=dict(t=40, l=10, r=10, b=10))
                             st.plotly_chart(fig_tree, use_container_width=True)
                             
+                        # 🟢 산업용 용도 구성비 상세 데이터 표
+                        st.markdown(f"**📊 2025년 산업용 구성비 상세 표 ({unit_str})**")
+                        ind_table = ind_grp.rename(columns={"단순업종": "업종", val_col: f"판매량 ({unit_str})"})
+                        ind_table = ind_table.sort_values(f"판매량 ({unit_str})", ascending=False).reset_index(drop=True)
+                        ind_table["비율(%)"] = (ind_table[f"판매량 ({unit_str})"] / total_ind_val * 100)
+                        
+                        # 합계 행 추가
+                        subtotal_ind_row = pd.DataFrame([{"업종": "💡 총계", f"판매량 ({unit_str})": total_ind_val, "비율(%)": 100.0}])
+                        ind_table = pd.concat([ind_table, subtotal_ind_row], ignore_index=True)
+                        
+                        st.dataframe(
+                            center_style(ind_table.style.format({f"판매량 ({unit_str})": "{:,.0f}", "비율(%)": "{:.1f}"}).apply(highlight_subtotal, axis=1)), 
+                            use_container_width=True, hide_index=True
+                        )
+
                         # 요약 박스 (2번 그래프 하단)
                         top4_val = ind_grp[ind_grp["단순업종"] != "기타"][val_col].sum()
                         top4_ratio = (top4_val / total_ind_val * 100) if total_ind_val > 0 else 0
@@ -539,7 +563,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         with col5: render_metric_card("🏞️", "칠곡군", "데이터참조", "※ 파일 연동", "#9467bd")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
-                        show_gu_rate = st.toggle("🔍 대구시내 구청별 보급률 상세 보기 (전체 96.8%)")
+                        
+                        # 🟢 key_sfx를 고유하게 붙여 StreamlitDuplicateElementId 에러 해결
+                        show_gu_rate = st.toggle("🔍 대구시내 구청별 보급률 상세 보기 (전체 96.8%)", key=f"toggle_gu_rate_{key_sfx}")
                         if show_gu_rate:
                             # 깃허브에 업로드된 보급률 현황 파일 로드 시도
                             try:
