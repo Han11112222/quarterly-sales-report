@@ -418,6 +418,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             with c_q: sel_quarter = st.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
             max_month = int(sel_quarter[0]) * 3 
         else:
+            # 대구시장 보고용 모드에서는 선택창을 숨기고 최신 데이터 기준으로 자동 설정
             sel_year_rpt = years_available[-1] if years_available else 2025
             sel_quarter = "4Q (1~12월 누적)"
             max_month = 12
@@ -436,44 +437,26 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if app_mode == "for 대구시장 보고용":
             st.markdown(f"### 🏢 대구시장 보고용 요약 대시보드")
             
-            # 1. 연도별 판매량 추이 (스택 그래프)
-            st.markdown("#### 1. 연도별 판매량 추이")
-            
-            all_available_years = sorted(df_long_rpt["연"].unique().tolist()) if not df_long_rpt.empty else [2021, 2022, 2023, 2024, 2025]
-            default_stack_years = [y for y in [2021, 2022, 2023, 2024, 2025] if y in all_available_years]
-            if not default_stack_years:
-                default_stack_years = all_available_years
-                
-            # 🟢 1) 연도를 선택 조절할 수 있는 버튼식 위젯 추가
-            sel_stack_years = st.multiselect("조회 연도 선택 (디폴트: 2021~2025년)", options=all_available_years, default=default_stack_years, key=f"stack_yrs_sel_{key_sfx}")
-            
-            df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(sel_stack_years))].copy()
+            # 1. 2021~2025년 연도별 판매량 추이 (스택 그래프)
+            st.markdown("#### 1. 연도별 판매량 추이 (2021~2025)")
+            df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin([2021, 2022, 2023, 2024, 2025]))]
             
             if not df_stack.empty:
-                # 🟢 2) 그룹 세분화 재매핑 (가정용, 산업용, 수송용, 업무용, 영업용, 기타)
-                def remap_stack_group(g):
-                    if g in ["가정용", "산업용", "수송용", "업무용", "영업용"]:
-                        return g
-                    return "기타"
-                df_stack["그룹"] = df_stack["그룹"].apply(remap_stack_group)
-                
                 stack_grp = df_stack.groupby(["연", "그룹"], as_index=False)["값"].sum()
                 yearly_totals = stack_grp.groupby("연")["값"].transform("sum")
                 stack_grp["비율(%)"] = (stack_grp["값"] / yearly_totals * 100).round(1)
                 
+                # 값과 비율을 함께 표시하는 텍스트 컬럼 생성
                 stack_grp["텍스트"] = stack_grp.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
-                fig_stack = px.bar(stack_grp, x="연", y="값", color="그룹", title=f"선택 연도별 그룹별 판매량 ({unit_str})", text="텍스트")
+                fig_stack = px.bar(stack_grp, x="연", y="값", color="그룹", title=f"2021~2025 그룹별 판매량 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
                 st.plotly_chart(fig_stack, use_container_width=True)
                 
-                # 🟢 모든 그래프 하단 표 배치 및 글자 중간 배열(center_style)
+                # 🟢 스택 그래프 상세 데이터 표
                 st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
                 stack_pivot = stack_grp.pivot(index="연", columns="그룹", values="값").fillna(0)
-                
-                desired_cols = [c for c in ["가정용", "산업용", "수송용", "업무용", "영업용", "기타"] if c in stack_pivot.columns]
-                stack_pivot = stack_pivot[desired_cols]
                 stack_pivot["합계"] = stack_pivot.sum(axis=1)
                 stack_pivot = stack_pivot.reset_index().rename(columns={"연": "연도"})
                 
@@ -481,14 +464,15 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 st.dataframe(center_style(stack_pivot.style.format(format_dict)), use_container_width=True, hide_index=True)
 
                 # 요약 박스 (1번 그래프 하단)
-                total_last_val = stack_grp[stack_grp["연"] == max(sel_stack_years)]["값"].sum() if not stack_grp.empty else 0
+                total_2025 = stack_grp[stack_grp["연"] == 2025]["값"].sum() if 2025 in stack_grp["연"].values else stack_grp[stack_grp["연"] == stack_grp["연"].max()]["값"].sum()
+                last_year = 2025 if 2025 in stack_grp["연"].values else stack_grp["연"].max()
                 st.markdown(f"""
                 <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 40px; color: #1e40af; font-size: 15px;">
-                    <strong>💡 [최근 동향 요약]</strong> 조회 범위 내 최고 연도 총 판매량은 <strong>{total_last_val:,.0f} {unit_str}</strong> 입니다.
+                    <strong>💡 [최근 동향 요약]</strong> {last_year}년 총 판매량은 <strong>{total_2025:,.0f} {unit_str}</strong> 입니다.
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.info("선택한 연도의 실적 데이터가 충분하지 않습니다.")
+                st.info("2021~2025년 실적 데이터가 충분하지 않습니다.")
 
             # 2. 산업용 용도 구성비 (2025년 기준)
             st.markdown("#### 2. 산업용 용도 구성비 (2025년 기준)")
@@ -500,10 +484,11 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     df_ind["업종"] = df_ind["업종분류"]
                     
                 if "업종" in df_ind.columns and not df_ind.empty:
+                    # 2025년 데이터 필터링
                     df_ind_2025 = df_ind[df_ind["연_csv"] == 2025].copy()
                     
                     if not df_ind_2025.empty:
-                        # 심플한 이름 명명 규칙 적용
+                        # 사용자 요청대로 4개 주요 업종 심플화, 나머지는 기타
                         def map_industry_name(name):
                             name = str(name)
                             if "섬유" in name: return "섬유업종"
@@ -514,16 +499,17 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             
                         df_ind_2025["단순업종"] = df_ind_2025["업종"].apply(map_industry_name)
                         ind_grp = df_ind_2025.groupby("단순업종", as_index=False)[val_col].sum()
+                        
                         total_ind_val = ind_grp[val_col].sum()
                         
                         col_pie, col_tree = st.columns(2)
                         with col_pie:
-                            # 🟢 1) 그래프 상단 타이틀 단위 명시 및 양·구성비 동시 표출 (1.5배 확대 및 수평배열 유지)
-                            fig_pie = px.pie(ind_grp, values=val_col, names="단순업종", title=f"2025년 산업용 구성비 (단위: {unit_str})", hole=0.4)
+                            # 파이 차트 (도넛) - 1.5배 크게 표출
+                            fig_pie = px.pie(ind_grp, values=val_col, names="단순업종", title="2025년 산업용 구성비", hole=0.4)
+                            
                             fig_pie.update_traces(
                                 textposition='auto', 
-                                textinfo='value+percent+label',
-                                texttemplate="%{label}<br>%{value:,.0f} {unit_str}<br>(%{percent})",
+                                textinfo='percent+label',
                                 insidetextorientation='horizontal',
                                 textfont=dict(size=14)
                             )
@@ -531,6 +517,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             st.plotly_chart(fig_pie, use_container_width=True)
                             
                         with col_tree:
+                            # 트리맵 (Treemap)
                             fig_tree = px.treemap(ind_grp, path=[px.Constant("산업용 전체"), "단순업종"], values=val_col, title="2025년 산업용 세부 업종별 비중")
                             fig_tree.update_traces(
                                 textinfo="label+value+percent parent",
@@ -540,20 +527,18 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             fig_tree.update_layout(height=550, margin=dict(t=40, l=10, r=10, b=10))
                             st.plotly_chart(fig_tree, use_container_width=True)
                             
-                        # 🟢 2) 하단 표에서 '기타'를 가장 하단에 배치 (중간 정렬 유지)
+                        # 🟢 산업용 용도 구성비 상세 데이터 표
                         st.markdown(f"**📊 2025년 산업용 구성비 상세 표 ({unit_str})**")
                         ind_table = ind_grp.rename(columns={"단순업종": "업종", val_col: f"판매량 ({unit_str})"})
+                        ind_table = ind_table.sort_values(f"판매량 ({unit_str})", ascending=False).reset_index(drop=True)
+                        ind_table["비율(%)"] = (ind_table[f"판매량 ({unit_str})"] / total_ind_val * 100)
                         
-                        ind_table_main = ind_table[ind_table["업종"] != "기타"].sort_values(f"판매량 ({unit_str})", ascending=False)
-                        ind_table_others = ind_table[ind_table["업종"] == "기타"]
-                        ind_table_final = pd.concat([ind_table_main, ind_table_others], ignore_index=True)
-                        ind_table_final["비율(%)"] = (ind_table_final[f"판매량 ({unit_str})"] / total_ind_val * 100)
-                        
+                        # 합계 행 추가
                         subtotal_ind_row = pd.DataFrame([{"업종": "💡 총계", f"판매량 ({unit_str})": total_ind_val, "비율(%)": 100.0}])
-                        ind_table_final = pd.concat([ind_table_final, subtotal_ind_row], ignore_index=True)
+                        ind_table = pd.concat([ind_table, subtotal_ind_row], ignore_index=True)
                         
                         st.dataframe(
-                            center_style(ind_table_final.style.format({f"판매량 ({unit_str})": "{:,.0f}", "비율(%)": "{:.1f}"}).apply(highlight_subtotal, axis=1)), 
+                            center_style(ind_table.style.format({f"판매량 ({unit_str})": "{:,.0f}", "비율(%)": "{:.1f}"}).apply(highlight_subtotal, axis=1)), 
                             use_container_width=True, hide_index=True
                         )
 
@@ -569,41 +554,35 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         # 3. 도시가스 보급률 현황
                         st.markdown("#### 3. 도시가스 보급률 현황")
                         
-                        # 🟢 1) 경산시, 고령군, 칠곡군 삭제 후 대구시 특화 카드 배치
-                        col1, col2 = st.columns(2)
+                        # 지표 카드 렌더링
+                        col1, col2, col3, col4, col5 = st.columns(5)
                         with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
-                        with col2: render_metric_card("🏙️", "대구시 보급률", "97.5%", "", "#2ca02c")
+                        with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
+                        with col3: render_metric_card("🏘️", "경산시", "101.3%", "", "#ff7f0e")
+                        with col4: render_metric_card("⛰️", "고령군", "38.0%", "", "#d62728")
+                        with col5: render_metric_card("🏞️", "칠곡군", "데이터참조", "※ 파일 연동", "#9467bd")
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         
-                        # 🟢 2) 대구시 구청별 보급률 상시 그래프 시각화 (하단 데이터 표 원천 삭제 및 중복 ID 에러 제거)
-                        st.markdown("**■ 대구시 구군별 도시가스 보급률 현황**")
-                        try:
-                            repo_dir = Path(__file__).parent
-                            rate_files = list(repo_dir.glob("*보급률*.csv")) + list(repo_dir.glob("*보급률*.xlsx"))
-                            if rate_files:
-                                if str(rate_files[0]).endswith('.csv'):
-                                    df_rate = pd.read_csv(rate_files[0], encoding='utf-8-sig')
+                        # 🟢 key_sfx를 고유하게 붙여 StreamlitDuplicateElementId 에러 해결
+                        show_gu_rate = st.toggle("🔍 대구시내 구청별 보급률 상세 보기 (전체 96.8%)", key=f"toggle_gu_rate_{key_sfx}")
+                        if show_gu_rate:
+                            # 깃허브에 업로드된 보급률 현황 파일 로드 시도
+                            try:
+                                repo_dir = Path(__file__).parent
+                                rate_files = list(repo_dir.glob("*보급률*.csv")) + list(repo_dir.glob("*보급률*.xlsx"))
+                                if rate_files:
+                                    if str(rate_files[0]).endswith('.csv'):
+                                        df_rate = pd.read_csv(rate_files[0], encoding='utf-8-sig')
+                                    else:
+                                        df_rate = pd.read_excel(rate_files[0])
+                                    st.dataframe(center_style(df_rate.style), use_container_width=True)
                                 else:
-                                    df_rate = pd.read_excel(rate_files[0])
-                                
-                                col_name_region = df_rate.columns[0]
-                                col_name_rate = df_rate.columns[1] if len(df_rate.columns) > 1 else df_rate.columns[0]
-                                
-                                df_rate[col_name_rate] = pd.to_numeric(df_rate[col_name_rate].astype(str).str.replace('%', ''), errors='coerce')
-                                df_rate = df_rate.dropna(subset=[col_name_rate]).sort_values(col_name_rate, ascending=False)
-                                
-                                fig_rate = px.bar(df_rate, x=col_name_region, y=col_name_rate, text=df_rate[col_name_rate].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else ""), title="대구시 구군별 보급률 상세")
-                                fig_rate.update_layout(xaxis_title="구군명", yaxis_title="보급률 (%)", margin=dict(t=40, b=20, l=20, r=20))
-                                fig_rate.update_traces(textposition='outside')
-                                st.plotly_chart(fig_rate, use_container_width=True)
-                            else:
-                                st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 업로드되면 상세 그래프가 자동 연동됩니다.")
-                        except Exception as e:
-                            st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 업로드되면 상세 그래프가 자동 연동됩니다.")
-                            
-                        # 🟢 3) 가장 하단에 지정 설명 문구 표출
-                        st.markdown("<p style='text-align: left; color: #475569; font-size: 13.5px; font-weight: bold; margin-top: 15px; margin-bottom: 30px;'>※ 보급률 = 가정용 청구전수 / 주민등록 세대수</p>", unsafe_allow_html=True)
+                                    st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
+                            except Exception as e:
+                                st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
+                        st.markdown("<br><br>", unsafe_allow_html=True)
+
 
                         # 4. 전체 산업체 상위 30개 업체 리스트 (2025년 기준)
                         st.markdown("#### 4. 산업용 상위 30개 업체 리스트 (2025년 기준)")
@@ -614,6 +593,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             top30_sum = top30[val_col].sum()
                             top30_ratio_overall = (top30_sum / total_ind_val * 100) if total_ind_val > 0 else 0
                             
+                            # 소계 추가
                             subtotal_row = pd.DataFrame([{"고객명": "💡 소계 (Top 30)", "단순업종": f"전체 산업용 대비 {top30_ratio_overall:.1f}%", val_col: top30_sum}])
                             top30_show = pd.concat([top30, subtotal_row], ignore_index=True)
                             
@@ -632,6 +612,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                                 <strong>💡 [상위 업체 요약]</strong> 2025년 상위 30개 업체의 총 판매량은 <strong>{top30_sum:,.0f} {unit_str}</strong>으로, 전체 산업용 판매량의 <strong>{top30_ratio_overall:.1f}%</strong>를 차지하고 있습니다.
                             </div>
                             """, unsafe_allow_html=True)
+                            
                         else:
                             st.info("고객명 데이터가 없거나 2025년 실적이 없습니다.")
                     else:
