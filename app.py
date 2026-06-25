@@ -11,7 +11,7 @@ import matplotlib as mpl
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from github import Github  # 🟢 GitHub 연동을 위한 라이브러리 추가
+from github import Github
 
 # ─────────────────────────────────────────────────────────
 # 기본 설정
@@ -33,10 +33,10 @@ DEFAULT_SALES_XLSX = "판매량(계획_실적).xlsx"
 DEFAULT_CSV = "가정용외_202601.csv"
 
 # ─────────────────────────────────────────────────────────
-# 🟢 코멘트 DB 저장 및 UI 유틸 (PW: 1234) - GitHub 실시간 Commit 버전
+# 🟢 코멘트 DB 저장 및 UI 유틸 (PW: 1234)
 # ─────────────────────────────────────────────────────────
 COMMENT_DB_FILE = "report_comments_db.json"
-REPO_NAME = "Han11112222/quarterly-sales-report"  # 🟢 확인된 레포지토리 이름 적용
+REPO_NAME = "Han11112222/quarterly-sales-report"
 
 def load_comments_db():
     if os.path.exists(COMMENT_DB_FILE):
@@ -108,7 +108,6 @@ def render_comment_section(title, db_key, curr_db, comments_db, height, placehol
             save_comments_db(comments_db)
             st.rerun()
 
-# 엑셀 헤더 → 분석 그룹 매핑
 USE_COL_TO_GROUP: Dict[str, str] = {
     "취사용": "가정용", "개별난방용": "가정용", "중앙난방용": "가정용", "자가열전용": "가정용",
     "일반용": "영업용",
@@ -426,9 +425,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             available_years_rpt = df_long_rpt["연"].dropna().unique().tolist() if not df_long_rpt.empty else []
             available_years_csv = df_csv_tab["연_csv"].dropna().unique().tolist() if not df_csv_tab.empty else []
             
-            # 명시적으로 2021~2025를 선택지에 강제 포함시킵니다 (데이터가 없어도 0으로 표출되도록)
             all_available_years = sorted(list(set(available_years_rpt + available_years_csv + [2021, 2022, 2023, 2024, 2025])))
-            
             target_defaults = [2021, 2022, 2023, 2024, 2025]
             
             selected_years = st.multiselect(
@@ -448,31 +445,40 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             st.markdown("#### 1. 연도별 전체 판매량 추이")
             df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(selected_years))]
             
-            # 피벗 및 리인덱스 적용 (데이터가 아예 없더라도 빈 프레임 생성)
-            stack_grp = df_stack.groupby(["연", "그룹"], as_index=False)["값"].sum() if not df_stack.empty else pd.DataFrame(columns=["연", "그룹", "값"])
+            # 🟢 에러를 유발했던 reset_index, melt, pivot 방식을 직관적인 리스트 매핑으로 변경
+            # 모든 그룹명 가져오기
+            all_groups = df_long_rpt["그룹"].dropna().unique().tolist() if not df_long_rpt.empty else ["가정용", "산업용", "영업용", "업무용"]
             
-            if stack_grp.empty:
-                stack_pivot = pd.DataFrame(index=selected_years, columns=["기타"]).fillna(0)
-            else:
-                stack_pivot = stack_grp.pivot(index="연", columns="그룹", values="값")
+            # 딕셔너리로 데이터를 깔끔하게 채움 (KeyError 원천 차단)
+            stack_data_list = []
+            for yr in selected_years:
+                yr_df = df_stack[df_stack["연"] == yr]
+                row_dict = {"연": yr}
+                for grp in all_groups:
+                    val = yr_df[yr_df["그룹"] == grp]["값"].sum() if not yr_df.empty else 0
+                    row_dict[grp] = val
+                stack_data_list.append(row_dict)
                 
-            stack_pivot = stack_pivot.reindex(selected_years).fillna(0)
-            stack_grp_full = stack_pivot.reset_index().melt(id_vars="index", var_name="그룹", value_name="값").rename(columns={"index": "연"})
+            stack_pivot_table = pd.DataFrame(stack_data_list).set_index("연")
+            stack_pivot_table["합계"] = stack_pivot_table.sum(axis=1)
             
-            yearly_totals = stack_grp_full.groupby("연")["값"].transform("sum")
-            stack_grp_full["비율(%)"] = np.where(yearly_totals > 0, (stack_grp_full["값"] / yearly_totals * 100).round(1), 0)
-            stack_grp_full["텍스트"] = stack_grp_full.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
+            # 다시 그래프용 긴 포맷(Long format)으로 풀기
+            stack_grp_full = pd.DataFrame()
+            if not stack_pivot_table.empty:
+                melted = stack_pivot_table.drop(columns=["합계"]).reset_index()
+                stack_grp_full = melted.melt(id_vars=["연"], var_name="그룹", value_name="값")
+                
+                yearly_totals = stack_grp_full.groupby("연")["값"].transform("sum")
+                stack_grp_full["비율(%)"] = np.where(yearly_totals > 0, (stack_grp_full["값"] / yearly_totals * 100).round(1), 0)
+                stack_grp_full["텍스트"] = stack_grp_full.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
-            fig_stack = px.bar(stack_grp_full, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
-            fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
-            fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
-            st.plotly_chart(fig_stack, use_container_width=True)
+                fig_stack = px.bar(stack_grp_full, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
+                fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
+                fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
+                st.plotly_chart(fig_stack, use_container_width=True)
             
             st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
-            stack_pivot_table = stack_pivot.copy()
-            stack_pivot_table["합계"] = stack_pivot_table.sum(axis=1)
-            stack_table = stack_pivot_table.reset_index().rename(columns={"index": "연도"})
-            
+            stack_table = stack_pivot_table.reset_index().rename(columns={"연": "연도"})
             format_dict = {col: "{:,.0f}" for col in stack_table.columns if col != "연도"}
             st.dataframe(center_style(stack_table.style.format(format_dict)), use_container_width=True, hide_index=True)
 
@@ -493,6 +499,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             if "업종분류" in df_ind.columns and "업종" not in df_ind.columns:
                 df_ind["업종"] = df_ind["업종분류"]
                 
+            ind_target_cols = ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"]
+            
             if not df_ind.empty and "업종" in df_ind.columns:
                 def map_industry_name(name):
                     name = str(name)
@@ -504,25 +512,23 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     
                 df_ind["단순업종"] = df_ind["업종"].apply(map_industry_name)
                 df_ind_filtered = df_ind[df_ind["연_csv"].isin(selected_years)].copy()
-                ind_stack_grp = df_ind_filtered.groupby(["연_csv", "단순업종"], as_index=False)[val_col].sum()
             else:
-                ind_stack_grp = pd.DataFrame(columns=["연_csv", "단순업종", val_col])
+                df_ind_filtered = pd.DataFrame(columns=["연_csv", "단순업종", val_col])
                 
-            # 빈 연도 완벽한 처리를 위한 로직
-            if ind_stack_grp.empty:
-                ind_pivot = pd.DataFrame(index=selected_years, columns=["기타"]).fillna(0)
-            else:
-                ind_pivot = ind_stack_grp.pivot(index="연_csv", columns="단순업종", values=val_col)
+            # 🟢 KeyError 방지를 위한 딕셔너리 매핑 생성
+            ind_data_list = []
+            for yr in selected_years:
+                yr_df = df_ind_filtered[df_ind_filtered["연_csv"] == yr] if not df_ind_filtered.empty else pd.DataFrame()
+                row_dict = {"연_csv": yr}
+                for tc in ind_target_cols:
+                    val = yr_df[yr_df["단순업종"] == tc][val_col].sum() if not yr_df.empty else 0
+                    row_dict[tc] = val
+                ind_data_list.append(row_dict)
                 
-            target_cols = ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"]
-            for tc in target_cols:
-                if tc not in ind_pivot.columns:
-                    ind_pivot[tc] = 0
-                    
-            ind_pivot = ind_pivot.reindex(selected_years).fillna(0)
-            ind_pivot = ind_pivot[target_cols] # 순서 고정
+            ind_pivot = pd.DataFrame(ind_data_list).set_index("연_csv")
+            ind_pivot = ind_pivot[ind_target_cols] # 순서 고정
             
-            ind_stack_full = ind_pivot.reset_index().melt(id_vars="index", var_name="단순업종", value_name=val_col).rename(columns={"index": "연_csv"})
+            ind_stack_full = ind_pivot.reset_index().melt(id_vars=["연_csv"], var_name="단순업종", value_name=val_col)
             
             yearly_ind_totals = ind_stack_full.groupby("연_csv")[val_col].transform("sum")
             ind_stack_full["비율(%)"] = np.where(yearly_ind_totals > 0, (ind_stack_full[val_col] / yearly_ind_totals * 100).round(1), 0)
@@ -539,7 +545,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
             ind_table = ind_pivot.copy()
             ind_table["💡 총계"] = ind_table.sum(axis=1)
-            ind_table = ind_table.reset_index().rename(columns={"index": "연도"})
+            ind_table = ind_table.reset_index().rename(columns={"연_csv": "연도"})
             
             format_dict_ind = {col: "{:,.0f}" for col in ind_table.columns if col != "연도"}
             st.dataframe(center_style(ind_table.style.format(format_dict_ind)), use_container_width=True, hide_index=True)
