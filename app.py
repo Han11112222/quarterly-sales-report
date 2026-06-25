@@ -422,9 +422,37 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if app_mode == "for 대구시장 보고용":
             st.markdown(f"### 🏢 대구시장 보고용 요약 대시보드")
             
-            # 1. 2021~2025년 연도별 판매량 추이 (스택 그래프)
-            st.markdown("#### 1. 연도별 판매량 추이 (2021~2025)")
-            df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin([2021, 2022, 2023, 2024, 2025]))]
+            # 🟢 공통 연도 선택 필터 추가 (1번, 2번 그래프 동시 적용)
+            available_years_rpt = df_long_rpt["연"].unique().tolist() if not df_long_rpt.empty else []
+            available_years_csv = df_csv_tab["연_csv"].dropna().unique().tolist() if not df_csv_tab.empty else []
+            all_available_years = sorted(list(set(available_years_rpt + available_years_csv)))
+            
+            if not all_available_years:
+                st.warning("데이터에 유효한 연도 정보가 없습니다.")
+                continue
+                
+            # 디폴트 5년 설정 (존재하는 데이터 중에서 2021~2025 매핑)
+            target_defaults = [2021, 2022, 2023, 2024, 2025]
+            default_years = [y for y in target_defaults if y in all_available_years]
+            if not default_years:
+                default_years = [all_available_years[-1]]
+                
+            selected_years = st.multiselect(
+                "📅 조회할 연도 선택 (다중 선택 가능)", 
+                options=all_available_years, 
+                default=default_years,
+                key=f"mayor_year_filter_{key_sfx}"
+            )
+            
+            if not selected_years:
+                st.info("선택된 연도가 없습니다. 연도를 선택해주세요.")
+                continue
+
+            st.markdown("---")
+            
+            # 1. 연도별 전체 판매량 추이 (스택 그래프)
+            st.markdown("#### 1. 연도별 전체 판매량 추이")
+            df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(selected_years))]
             
             if not df_stack.empty:
                 stack_grp = df_stack.groupby(["연", "그룹"], as_index=False)["값"].sum()
@@ -433,7 +461,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 
                 stack_grp["텍스트"] = stack_grp.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
-                fig_stack = px.bar(stack_grp, x="연", y="값", color="그룹", title=f"2021~2025 그룹별 판매량 ({unit_str})", text="텍스트")
+                fig_stack = px.bar(stack_grp, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
                 st.plotly_chart(fig_stack, use_container_width=True)
@@ -446,15 +474,16 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 format_dict = {col: "{:,.0f}" for col in stack_pivot.columns if col != "연도"}
                 st.dataframe(center_style(stack_pivot.style.format(format_dict)), use_container_width=True, hide_index=True)
 
-                total_2025 = stack_grp[stack_grp["연"] == 2025]["값"].sum() if 2025 in stack_grp["연"].values else stack_grp[stack_grp["연"] == stack_grp["연"].max()]["값"].sum()
-                last_year = 2025 if 2025 in stack_grp["연"].values else stack_grp["연"].max()
+                latest_year_overall = stack_grp["연"].max()
+                total_latest_overall = stack_grp[stack_grp["연"] == latest_year_overall]["값"].sum()
+                
                 st.markdown(f"""
                 <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 40px; color: #1e40af; font-size: 15px;">
-                    <strong>💡 [최근 동향 요약]</strong> {last_year}년 총 판매량은 <strong>{total_2025:,.0f} {unit_str}</strong> 입니다.
+                    <strong>💡 [최근 동향 요약]</strong> {latest_year_overall}년 전체 총 판매량은 <strong>{total_latest_overall:,.0f} {unit_str}</strong> 입니다.
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.info("2021~2025년 실적 데이터가 충분하지 않습니다.")
+                st.info("선택한 연도의 실적 데이터가 충분하지 않습니다.")
 
             # 2. 연도별 산업용 세부 업종 추이
             st.markdown("#### 2. 연도별 산업용 세부 업종 추이")
@@ -475,11 +504,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         return "기타"
                         
                     df_ind["단순업종"] = df_ind["업종"].apply(map_industry_name)
-                    df_ind_2025 = df_ind[df_ind["연_csv"] == 2025].copy()
-                    total_ind_val = df_ind_2025[val_col].sum() if not df_ind_2025.empty else 0
                     
-                    if not df_ind.empty:
-                        ind_stack_grp = df_ind.groupby(["연_csv", "단순업종"], as_index=False)[val_col].sum()
+                    # 🟢 사용자가 다중 선택한 연도(selected_years)로 데이터 필터링
+                    df_ind_filtered = df_ind[df_ind["연_csv"].isin(selected_years)].copy()
+                    
+                    if not df_ind_filtered.empty:
+                        ind_stack_grp = df_ind_filtered.groupby(["연_csv", "단순업종"], as_index=False)[val_col].sum()
                         yearly_ind_totals = ind_stack_grp.groupby("연_csv")[val_col].transform("sum")
                         ind_stack_grp["비율(%)"] = (ind_stack_grp[val_col] / yearly_ind_totals * 100).round(1)
                         
@@ -506,20 +536,20 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         format_dict_ind = {col: "{:,.0f}" for col in ind_table.columns if col != "연도"}
                         st.dataframe(center_style(ind_table.style.format(format_dict_ind)), use_container_width=True, hide_index=True)
 
-                        latest_year = ind_stack_grp["연_csv"].max()
-                        latest_data = ind_stack_grp[ind_stack_grp["연_csv"] == latest_year]
-                        total_latest_val = latest_data[val_col].sum()
-                        top4_val = latest_data[latest_data["단순업종"] != "기타"][val_col].sum()
+                        latest_year_ind = ind_stack_grp["연_csv"].max()
+                        latest_data_ind = ind_stack_grp[ind_stack_grp["연_csv"] == latest_year_ind]
+                        total_latest_val = latest_data_ind[val_col].sum()
+                        top4_val = latest_data_ind[latest_data_ind["단순업종"] != "기타"][val_col].sum()
                         top4_ratio = (top4_val / total_latest_val * 100) if total_latest_val > 0 else 0
                         
                         st.markdown(f"""
                         <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 40px; color: #1e40af; font-size: 15px;">
-                            <strong>💡 [산업용 구성 요약]</strong> {latest_year}년 산업용 전체 판매량은 <strong>{total_latest_val:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
+                            <strong>💡 [산업용 구성 요약]</strong> {latest_year_ind}년 산업용 전체 판매량은 <strong>{total_latest_val:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
                         </div>
                         """, unsafe_allow_html=True)
                         
                     else:
-                        st.info("산업용 실적 데이터가 존재하지 않습니다.")
+                        st.info("선택한 연도의 산업용 실적 데이터가 존재하지 않습니다.")
                 else:
                     st.info("CSV 내 산업용 업종 분류 데이터가 부족합니다.")
             else:
@@ -552,37 +582,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 except Exception as e:
                     st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
             st.markdown("<br><br>", unsafe_allow_html=True)
-
-            # 4. 전체 산업체 상위 30개 업체 리스트 (2025년 기준)
-            st.markdown("#### 4. 산업용 상위 30개 업체 리스트 (2025년 기준)")
-            if "고객명" in df_ind_2025.columns:
-                cust_grp = df_ind_2025.groupby(["고객명", "단순업종"], as_index=False)[val_col].sum().sort_values(val_col, ascending=False)
-                top30 = cust_grp.head(30).reset_index(drop=True)
-                
-                top30_sum = top30[val_col].sum()
-                top30_ratio_overall = (top30_sum / total_ind_val * 100) if total_ind_val > 0 else 0
-                
-                subtotal_row = pd.DataFrame([{"고객명": "💡 소계 (Top 30)", "단순업종": f"전체 산업용 대비 {top30_ratio_overall:.1f}%", val_col: top30_sum}])
-                top30_show = pd.concat([top30, subtotal_row], ignore_index=True)
-                
-                ranks = list(range(1, len(top30) + 1)) + ["-"]
-                top30_show.insert(0, "순위", ranks)
-                top30_show = top30_show.rename(columns={val_col: f"2025년 판매량 ({unit_str})", "단순업종": "업종"})
-                
-                st.dataframe(
-                    center_style(top30_show.style.format({f"2025년 판매량 ({unit_str})": "{:,.0f}"}).apply(highlight_subtotal, axis=1)), 
-                    use_container_width=True, hide_index=True
-                )
-                
-                st.markdown(f"""
-                <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 30px; color: #1e40af; font-size: 15px;">
-                    <strong>💡 [상위 업체 요약]</strong> 2025년 상위 30개 업체의 총 판매량은 <strong>{top30_sum:,.0f} {unit_str}</strong>으로, 전체 산업용 판매량의 <strong>{top30_ratio_overall:.1f}%</strong>를 차지하고 있습니다.
-                </div>
-                """, unsafe_allow_html=True)
-                
-            else:
-                st.info("고객명 데이터가 없거나 2025년 실적이 없습니다.")
             
+            # 대구시장 보고용 화면 렌더링이 끝나면 아래의 기본 보고서 화면은 스킵
             continue
 
         # --- 2. At a Glance (기존 Executive / Sharing 모드) ---
