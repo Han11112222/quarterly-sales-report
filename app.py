@@ -13,7 +13,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from github import Github  # 🟢 GitHub 연동을 위한 라이브러리 추가
 
-
 # ─────────────────────────────────────────────────────────
 # 기본 설정
 # ─────────────────────────────────────────────────────────
@@ -26,7 +25,6 @@ def set_korean_font():
             mpl.rcParams["axes.unicode_minus"] = False
         except Exception:
             pass
-
 
 set_korean_font()
 st.set_page_config(page_title="도시가스 판매량 분석 보고서", layout="wide")
@@ -50,10 +48,6 @@ def load_comments_db():
     return {}
 
 def save_comments_db(db_data):
-    """
-    로컬에 먼저 json을 저장한 뒤, 
-    스트림릿 Secrets에 저장된 토큰을 이용해 깃허브 원본 파일도 업데이트합니다.
-    """
     with open(COMMENT_DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db_data, f, ensure_ascii=False, indent=4)
         
@@ -114,7 +108,6 @@ def render_comment_section(title, db_key, curr_db, comments_db, height, placehol
             save_comments_db(comments_db)
             st.rerun()
 
-
 # 엑셀 헤더 → 분석 그룹 매핑
 USE_COL_TO_GROUP: Dict[str, str] = {
     "취사용": "가정용", "개별난방용": "가정용", "중앙난방용": "가정용", "자가열전용": "가정용",
@@ -129,7 +122,6 @@ USE_COL_TO_GROUP: Dict[str, str] = {
 COLOR_PLAN = "rgba(0, 90, 200, 1)"
 COLOR_ACT = "rgba(0, 150, 255, 1)"
 COLOR_PREV = "rgba(190, 190, 190, 1)"
-
 
 # ─────────────────────────────────────────────────────────
 # 공통 유틸
@@ -223,7 +215,6 @@ def build_long_dict(sheets: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         long_dict["열량"] = make_long(sheets["계획_열량"], sheets["실적_열량"])
     return long_dict
 
-
 def render_metric_card(icon: str, title: str, main: str, sub: str = "", color: str = "#1f77b4"):
     html = f"""
     <div style="background-color:#ffffff; border-radius:22px; padding:24px 26px 20px 26px; box-shadow:0 4px 18px rgba(0,0,0,0.06); height:100%; display:flex; flex-direction:column; justify-content:flex-start;">
@@ -252,7 +243,6 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
         annotations=[dict(text=f"{rate:.1f}%", x=0.5, y=0.5, showarrow=False, font=dict(size=22, color=color, family="NanumGothic"))],
     )
     st.plotly_chart(fig, use_container_width=False)
-
 
 # ─────────────────────────────────────────────────────────
 # 메인 레이아웃 (사이드바)
@@ -310,7 +300,6 @@ with st.sidebar:
             csv_info = f"레포 경로에 {DEFAULT_CSV} 파일이 없습니다."
     st.caption(csv_info)
 
-
 # ─────────────────────────────────────────────────────────
 # 본문 로직
 # ─────────────────────────────────────────────────────────
@@ -322,7 +311,6 @@ if app_mode == "for Sharing":
         st.stop()
     else:
         st.success("🔓 인증되었습니다. 공유용 화면을 표시합니다.")
-
 
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
 if 'excel_bytes' in locals() and excel_bytes is not None:
@@ -411,14 +399,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             df_csv_tab["연_csv"] = df_csv_tab["날짜_파싱"].dt.year
             df_csv_tab["월_csv"] = df_csv_tab["날짜_파싱"].dt.month
         
-        # 🟢 보고서 모드에 따른 상단 UI (연도/분기) 렌더링 분기
         if app_mode != "for 대구시장 보고용":
             c_y, c_q, c_empty = st.columns([1, 1, 2])
             with c_y: sel_year_rpt = st.selectbox("기준 연도", years_available, index=default_y_index, key=f"rpt_yr{key_sfx}")
             with c_q: sel_quarter = st.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
             max_month = int(sel_quarter[0]) * 3 
         else:
-            # 대구시장 보고용 모드에서는 선택창을 숨기고 최신 데이터 기준으로 자동 설정
             sel_year_rpt = years_available[-1] if years_available else 2025
             sel_quarter = "4Q (1~12월 누적)"
             max_month = 12
@@ -429,7 +415,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         if report_db_key not in comments_db: comments_db[report_db_key] = {}
         curr_db = comments_db[report_db_key]
         st.markdown("<hr style='margin: 10px 0 30px 0;'>", unsafe_allow_html=True)
-
 
         # ─────────────────────────────────────────────────────────
         # 🟢 대구시장 보고용 특화 대시보드 렌더링
@@ -446,7 +431,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 yearly_totals = stack_grp.groupby("연")["값"].transform("sum")
                 stack_grp["비율(%)"] = (stack_grp["값"] / yearly_totals * 100).round(1)
                 
-                # 값과 비율을 함께 표시하는 텍스트 컬럼 생성
                 stack_grp["텍스트"] = stack_grp.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
                 fig_stack = px.bar(stack_grp, x="연", y="값", color="그룹", title=f"2021~2025 그룹별 판매량 ({unit_str})", text="텍스트")
@@ -454,7 +438,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
                 st.plotly_chart(fig_stack, use_container_width=True)
                 
-                # 🟢 스택 그래프 상세 데이터 표
                 st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
                 stack_pivot = stack_grp.pivot(index="연", columns="그룹", values="값").fillna(0)
                 stack_pivot["합계"] = stack_pivot.sum(axis=1)
@@ -463,7 +446,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 format_dict = {col: "{:,.0f}" for col in stack_pivot.columns if col != "연도"}
                 st.dataframe(center_style(stack_pivot.style.format(format_dict)), use_container_width=True, hide_index=True)
 
-                # 요약 박스 (1번 그래프 하단)
                 total_2025 = stack_grp[stack_grp["연"] == 2025]["값"].sum() if 2025 in stack_grp["연"].values else stack_grp[stack_grp["연"] == stack_grp["연"].max()]["값"].sum()
                 last_year = 2025 if 2025 in stack_grp["연"].values else stack_grp["연"].max()
                 st.markdown(f"""
@@ -474,8 +456,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             else:
                 st.info("2021~2025년 실적 데이터가 충분하지 않습니다.")
 
-            # 2. 산업용 용도 구성비 (2025년 기준)
-            st.markdown("#### 2. 산업용 용도 구성비 (2025년 기준)")
+            # 2. 연도별 산업용 세부 업종 추이
+            st.markdown("#### 2. 연도별 산업용 세부 업종 추이")
             if not df_csv_tab.empty and val_col in df_csv_tab.columns:
                 csv_products = df_csv_tab["상품명"].astype(str).str.replace(r"\s+", "", regex=True)
                 df_ind = df_csv_tab[(csv_products == "산업용")].copy()
@@ -484,147 +466,124 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     df_ind["업종"] = df_ind["업종분류"]
                     
                 if "업종" in df_ind.columns and not df_ind.empty:
-                    # 2025년 데이터 필터링
+                    def map_industry_name(name):
+                        name = str(name)
+                        if "섬유" in name: return "섬유업종"
+                        if "펄프" in name or "종이" in name: return "펄프업종"
+                        if "1차" in name and "금속" in name: return "1차금속"
+                        if "식료품" in name: return "식료품"
+                        return "기타"
+                        
+                    df_ind["단순업종"] = df_ind["업종"].apply(map_industry_name)
                     df_ind_2025 = df_ind[df_ind["연_csv"] == 2025].copy()
+                    total_ind_val = df_ind_2025[val_col].sum() if not df_ind_2025.empty else 0
                     
-                    if not df_ind_2025.empty:
-                        # 사용자 요청대로 4개 주요 업종 심플화, 나머지는 기타
-                        def map_industry_name(name):
-                            name = str(name)
-                            if "섬유" in name: return "섬유업종"
-                            if "펄프" in name or "종이" in name: return "펄프업종"
-                            if "1차" in name and "금속" in name: return "1차금속"
-                            if "식료품" in name: return "식료품"
-                            return "기타"
-                            
-                        df_ind_2025["단순업종"] = df_ind_2025["업종"].apply(map_industry_name)
-                        ind_grp = df_ind_2025.groupby("단순업종", as_index=False)[val_col].sum()
+                    if not df_ind.empty:
+                        ind_stack_grp = df_ind.groupby(["연_csv", "단순업종"], as_index=False)[val_col].sum()
+                        yearly_ind_totals = ind_stack_grp.groupby("연_csv")[val_col].transform("sum")
+                        ind_stack_grp["비율(%)"] = (ind_stack_grp[val_col] / yearly_ind_totals * 100).round(1)
                         
-                        total_ind_val = ind_grp[val_col].sum()
-                        
-                        col_pie, col_tree = st.columns(2)
-                        with col_pie:
-                            # 파이 차트 (도넛) - 1.5배 크게 표출
-                            fig_pie = px.pie(ind_grp, values=val_col, names="단순업종", title="2025년 산업용 구성비", hole=0.4)
-                            
-                            fig_pie.update_traces(
-                                textposition='auto', 
-                                textinfo='percent+label',
-                                insidetextorientation='horizontal',
-                                textfont=dict(size=14)
-                            )
-                            fig_pie.update_layout(height=550) 
-                            st.plotly_chart(fig_pie, use_container_width=True)
-                            
-                        with col_tree:
-                            # 트리맵 (Treemap)
-                            fig_tree = px.treemap(ind_grp, path=[px.Constant("산업용 전체"), "단순업종"], values=val_col, title="2025년 산업용 세부 업종별 비중")
-                            fig_tree.update_traces(
-                                textinfo="label+value+percent parent",
-                                texttemplate="%{label}<br>%{value:,.0f}<br>(%{percentParent:.1%})",
-                                textfont=dict(size=14)
-                            )
-                            fig_tree.update_layout(height=550, margin=dict(t=40, l=10, r=10, b=10))
-                            st.plotly_chart(fig_tree, use_container_width=True)
-                            
-                        # 🟢 산업용 용도 구성비 상세 데이터 표
-                        st.markdown(f"**📊 2025년 산업용 구성비 상세 표 ({unit_str})**")
-                        ind_table = ind_grp.rename(columns={"단순업종": "업종", val_col: f"판매량 ({unit_str})"})
-                        ind_table = ind_table.sort_values(f"판매량 ({unit_str})", ascending=False).reset_index(drop=True)
-                        ind_table["비율(%)"] = (ind_table[f"판매량 ({unit_str})"] / total_ind_val * 100)
-                        
-                        # 합계 행 추가
-                        subtotal_ind_row = pd.DataFrame([{"업종": "💡 총계", f"판매량 ({unit_str})": total_ind_val, "비율(%)": 100.0}])
-                        ind_table = pd.concat([ind_table, subtotal_ind_row], ignore_index=True)
-                        
-                        st.dataframe(
-                            center_style(ind_table.style.format({f"판매량 ({unit_str})": "{:,.0f}", "비율(%)": "{:.1f}"}).apply(highlight_subtotal, axis=1)), 
-                            use_container_width=True, hide_index=True
-                        )
+                        ind_stack_grp["텍스트"] = ind_stack_grp.apply(lambda x: f"{x[val_col]:,.0f}<br>({x['비율(%)']}%)" if x[val_col] > 0 else "", axis=1)
 
-                        # 요약 박스 (2번 그래프 하단)
-                        top4_val = ind_grp[ind_grp["단순업종"] != "기타"][val_col].sum()
-                        top4_ratio = (top4_val / total_ind_val * 100) if total_ind_val > 0 else 0
+                        fig_ind_stack = px.bar(
+                            ind_stack_grp, x="연_csv", y=val_col, color="단순업종",
+                            title=f"연도별 산업용 세부 업종 판매량 추이", text="텍스트"
+                        )
+                        fig_ind_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
+                        fig_ind_stack.update_traces(textposition='inside', insidetextanchor='middle')
+                        st.plotly_chart(fig_ind_stack, use_container_width=True)
+                        
+                        st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
+                        ind_table = ind_stack_grp.pivot(index="연_csv", columns="단순업종", values=val_col).fillna(0)
+                        
+                        desired_cols = [c for c in ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"] if c in ind_table.columns]
+                        remaining_cols = [c for c in ind_table.columns if c not in desired_cols]
+                        ind_table = ind_table[desired_cols + remaining_cols]
+                        
+                        ind_table["💡 총계"] = ind_table.sum(axis=1)
+                        ind_table = ind_table.reset_index().rename(columns={"연_csv": "연도"})
+                        
+                        format_dict_ind = {col: "{:,.0f}" for col in ind_table.columns if col != "연도"}
+                        st.dataframe(center_style(ind_table.style.format(format_dict_ind)), use_container_width=True, hide_index=True)
+
+                        latest_year = ind_stack_grp["연_csv"].max()
+                        latest_data = ind_stack_grp[ind_stack_grp["연_csv"] == latest_year]
+                        total_latest_val = latest_data[val_col].sum()
+                        top4_val = latest_data[latest_data["단순업종"] != "기타"][val_col].sum()
+                        top4_ratio = (top4_val / total_latest_val * 100) if total_latest_val > 0 else 0
+                        
                         st.markdown(f"""
                         <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 40px; color: #1e40af; font-size: 15px;">
-                            <strong>💡 [산업용 구성 요약]</strong> 2025년 산업용 전체 판매량은 <strong>{total_ind_val:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
+                            <strong>💡 [산업용 구성 요약]</strong> {latest_year}년 산업용 전체 판매량은 <strong>{total_latest_val:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # 3. 도시가스 보급률 현황
-                        st.markdown("#### 3. 도시가스 보급률 현황")
-                        
-                        # 지표 카드 렌더링
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
-                        with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
-                        with col3: render_metric_card("🏘️", "경산시", "101.3%", "", "#ff7f0e")
-                        with col4: render_metric_card("⛰️", "고령군", "38.0%", "", "#d62728")
-                        with col5: render_metric_card("🏞️", "칠곡군", "데이터참조", "※ 파일 연동", "#9467bd")
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # 🟢 key_sfx를 고유하게 붙여 StreamlitDuplicateElementId 에러 해결
-                        show_gu_rate = st.toggle("🔍 대구시내 구청별 보급률 상세 보기 (전체 96.8%)", key=f"toggle_gu_rate_{key_sfx}")
-                        if show_gu_rate:
-                            # 깃허브에 업로드된 보급률 현황 파일 로드 시도
-                            try:
-                                repo_dir = Path(__file__).parent
-                                rate_files = list(repo_dir.glob("*보급률*.csv")) + list(repo_dir.glob("*보급률*.xlsx"))
-                                if rate_files:
-                                    if str(rate_files[0]).endswith('.csv'):
-                                        df_rate = pd.read_csv(rate_files[0], encoding='utf-8-sig')
-                                    else:
-                                        df_rate = pd.read_excel(rate_files[0])
-                                    st.dataframe(center_style(df_rate.style), use_container_width=True)
-                                else:
-                                    st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
-                            except Exception as e:
-                                st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
-                        st.markdown("<br><br>", unsafe_allow_html=True)
-
-
-                        # 4. 전체 산업체 상위 30개 업체 리스트 (2025년 기준)
-                        st.markdown("#### 4. 산업용 상위 30개 업체 리스트 (2025년 기준)")
-                        if "고객명" in df_ind_2025.columns:
-                            cust_grp = df_ind_2025.groupby(["고객명", "단순업종"], as_index=False)[val_col].sum().sort_values(val_col, ascending=False)
-                            top30 = cust_grp.head(30).reset_index(drop=True)
-                            
-                            top30_sum = top30[val_col].sum()
-                            top30_ratio_overall = (top30_sum / total_ind_val * 100) if total_ind_val > 0 else 0
-                            
-                            # 소계 추가
-                            subtotal_row = pd.DataFrame([{"고객명": "💡 소계 (Top 30)", "단순업종": f"전체 산업용 대비 {top30_ratio_overall:.1f}%", val_col: top30_sum}])
-                            top30_show = pd.concat([top30, subtotal_row], ignore_index=True)
-                            
-                            ranks = list(range(1, len(top30) + 1)) + ["-"]
-                            top30_show.insert(0, "순위", ranks)
-                            top30_show = top30_show.rename(columns={val_col: f"2025년 판매량 ({unit_str})", "단순업종": "업종"})
-                            
-                            st.dataframe(
-                                center_style(top30_show.style.format({f"2025년 판매량 ({unit_str})": "{:,.0f}"}).apply(highlight_subtotal, axis=1)), 
-                                use_container_width=True, hide_index=True
-                            )
-                            
-                            # 요약 박스 (4번 표 하단)
-                            st.markdown(f"""
-                            <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 30px; color: #1e40af; font-size: 15px;">
-                                <strong>💡 [상위 업체 요약]</strong> 2025년 상위 30개 업체의 총 판매량은 <strong>{top30_sum:,.0f} {unit_str}</strong>으로, 전체 산업용 판매량의 <strong>{top30_ratio_overall:.1f}%</strong>를 차지하고 있습니다.
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                        else:
-                            st.info("고객명 데이터가 없거나 2025년 실적이 없습니다.")
                     else:
-                        st.info("2025년 산업용 실적 데이터가 존재하지 않습니다.")
+                        st.info("산업용 실적 데이터가 존재하지 않습니다.")
                 else:
                     st.info("CSV 내 산업용 업종 분류 데이터가 부족합니다.")
             else:
                 st.warning("CSV 세부 데이터가 업로드되지 않았습니다. 좌측에서 CSV를 추가해주세요.")
             
-            # 대구시장 보고용 화면 렌더링이 끝나면 아래의 기본 보고서 화면은 스킵
-            continue
+            # 3. 도시가스 보급률 현황
+            st.markdown("#### 3. 도시가스 보급률 현황")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
+            with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
+            with col3: render_metric_card("🏘️", "경산시", "101.3%", "", "#ff7f0e")
+            with col4: render_metric_card("⛰️", "고령군", "38.0%", "", "#d62728")
+            with col5: render_metric_card("🏞️", "칠곡군", "데이터참조", "※ 파일 연동", "#9467bd")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            show_gu_rate = st.toggle("🔍 대구시내 구청별 보급률 상세 보기 (전체 96.8%)", key=f"toggle_gu_rate_{key_sfx}")
+            if show_gu_rate:
+                try:
+                    repo_dir = Path(__file__).parent
+                    rate_files = list(repo_dir.glob("*보급률*.csv")) + list(repo_dir.glob("*보급률*.xlsx"))
+                    if rate_files:
+                        if str(rate_files[0]).endswith('.csv'):
+                            df_rate = pd.read_csv(rate_files[0], encoding='utf-8-sig')
+                        else:
+                            df_rate = pd.read_excel(rate_files[0])
+                        st.dataframe(center_style(df_rate.style), use_container_width=True)
+                    else:
+                        st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
+                except Exception as e:
+                    st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
+            st.markdown("<br><br>", unsafe_allow_html=True)
 
+            # 4. 전체 산업체 상위 30개 업체 리스트 (2025년 기준)
+            st.markdown("#### 4. 산업용 상위 30개 업체 리스트 (2025년 기준)")
+            if "고객명" in df_ind_2025.columns:
+                cust_grp = df_ind_2025.groupby(["고객명", "단순업종"], as_index=False)[val_col].sum().sort_values(val_col, ascending=False)
+                top30 = cust_grp.head(30).reset_index(drop=True)
+                
+                top30_sum = top30[val_col].sum()
+                top30_ratio_overall = (top30_sum / total_ind_val * 100) if total_ind_val > 0 else 0
+                
+                subtotal_row = pd.DataFrame([{"고객명": "💡 소계 (Top 30)", "단순업종": f"전체 산업용 대비 {top30_ratio_overall:.1f}%", val_col: top30_sum}])
+                top30_show = pd.concat([top30, subtotal_row], ignore_index=True)
+                
+                ranks = list(range(1, len(top30) + 1)) + ["-"]
+                top30_show.insert(0, "순위", ranks)
+                top30_show = top30_show.rename(columns={val_col: f"2025년 판매량 ({unit_str})", "단순업종": "업종"})
+                
+                st.dataframe(
+                    center_style(top30_show.style.format({f"2025년 판매량 ({unit_str})": "{:,.0f}"}).apply(highlight_subtotal, axis=1)), 
+                    use_container_width=True, hide_index=True
+                )
+                
+                st.markdown(f"""
+                <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 30px; color: #1e40af; font-size: 15px;">
+                    <strong>💡 [상위 업체 요약]</strong> 2025년 상위 30개 업체의 총 판매량은 <strong>{top30_sum:,.0f} {unit_str}</strong>으로, 전체 산업용 판매량의 <strong>{top30_ratio_overall:.1f}%</strong>를 차지하고 있습니다.
+                </div>
+                """, unsafe_allow_html=True)
+                
+            else:
+                st.info("고객명 데이터가 없거나 2025년 실적이 없습니다.")
+            
+            continue
 
         # --- 2. At a Glance (기존 Executive / Sharing 모드) ---
         st.markdown("#### 💡 1. At a Glance")
@@ -654,7 +613,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 render_rate_donut(achieve_rate_prev, COLOR_PREV, "전년대비 증감률")
 
         render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120, f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성. 주요 특이사항은... (자유롭게 입력하세요)", f"glance_{key_sfx}{mode_suffix}")
-        
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
         # --- 3. 전체 판매량 표 정리 & One Page Review ---
@@ -759,22 +717,19 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby(grp_col, as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                         ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on=grp_col, how="outer").fillna(0)
                         
-                        diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - sum_act
-                        diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - sum_prev
                         ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                         
                         if len(ind_comp) > 10:
                             top10_df = ind_comp.iloc[:10].copy()
                             others_df = ind_comp.iloc[10:].copy()
-                            o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
-                            o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                            
+                            o_c = others_df[f"{sel_year_rpt}년"].sum()
+                            o_p = others_df[f"{sel_year_rpt-1}년"].sum()
+                            
                             others_row = pd.DataFrame([{grp_col: "기타", f"{sel_year_rpt}년": o_c, f"{sel_year_rpt-1}년": o_p}])
                             ind_comp_plot = pd.concat([top10_df, others_row], ignore_index=True)
                         else:
                             ind_comp_plot = ind_comp.copy()
-                            if len(ind_comp_plot) > 0:
-                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt}년"] -= diff_c
-                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt-1}년"] -= diff_p
                                 
                         ind_comp_plot["증감절대값"] = abs(ind_comp_plot[f"{sel_year_rpt}년"] - ind_comp_plot[f"{sel_year_rpt-1}년"])
                         max_diff_idx = ind_comp_plot["증감절대값"].idxmax()
@@ -828,9 +783,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby("업종", as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                     ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on="업종", how="outer").fillna(0)
                     
-                    diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - tgt_c
-                    diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - tgt_p
-                    
                     sort_option = st.radio("표 정렬 기준", ["당해연도 판매량 순", "전년대비 증감량 순"], horizontal=True, key=f"sort_{usage_label}{key_sfx}")
                     if sort_option == "당해연도 판매량 순": ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                     else:
@@ -841,16 +793,14 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     if len(ind_comp) > 10:
                         top10_df = ind_comp.iloc[:10].copy()
                         others_df = ind_comp.iloc[10:].copy()
-                        o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
-                        o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                        
+                        o_c = others_df[f"{sel_year_rpt}년"].sum()
+                        o_p = others_df[f"{sel_year_rpt-1}년"].sum()
+                        
                         o_diff = o_c - o_p
                         o_rate = (o_c / o_p * 100) if o_p > 0 else 0
                         others_row = pd.DataFrame([{"업종": "기타", f"{sel_year_rpt}년": o_c, f"{sel_year_rpt-1}년": o_p, "증감": o_diff, "대비(%)": o_rate}])
                         ind_comp = pd.concat([top10_df, others_row], ignore_index=True)
-                    else:
-                        if len(ind_comp) > 0:
-                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt}년"] -= diff_c
-                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt-1}년"] -= diff_p
                     
                     ind_comp["증감"] = ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"]
                     ind_comp["대비(%)"] = np.where(ind_comp[f"{sel_year_rpt-1}년"] > 0, (ind_comp[f"{sel_year_rpt}년"] / ind_comp[f"{sel_year_rpt-1}년"]) * 100, 0)
@@ -909,35 +859,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             
                             grp_top = pd.merge(c_curr_all, c_prev_all, on=["고객명", "업종"], how="outer").fillna(0)
                             
-                            diff_c_top = grp_top[f"{sel_year_rpt}년"].sum() - tgt_c
-                            diff_p_top = grp_top[f"{sel_year_rpt-1}년"].sum() - tgt_p
-
                             grp_top = grp_top.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                             
-                            d_c = diff_c_top
-                            if d_c > 0:
-                                for idx in reversed(grp_top.index):
-                                    if grp_top.loc[idx, f"{sel_year_rpt}년"] >= d_c:
-                                        grp_top.loc[idx, f"{sel_year_rpt}년"] -= d_c
-                                        d_c = 0; break
-                                    else:
-                                        d_c -= grp_top.loc[idx, f"{sel_year_rpt}년"]
-                                        grp_top.loc[idx, f"{sel_year_rpt}년"] = 0
-                            elif d_c < 0:
-                                if len(grp_top) > 0: grp_top.loc[len(grp_top)-1, f"{sel_year_rpt}년"] -= d_c
-                                    
-                            d_p = diff_p_top
-                            if d_p > 0:
-                                for idx in reversed(grp_top.index):
-                                    if grp_top.loc[idx, f"{sel_year_rpt-1}년"] >= d_p:
-                                        grp_top.loc[idx, f"{sel_year_rpt-1}년"] -= d_p
-                                        d_p = 0; break
-                                    else:
-                                        d_p -= grp_top.loc[idx, f"{sel_year_rpt-1}년"]
-                                        grp_top.loc[idx, f"{sel_year_rpt-1}년"] = 0
-                            elif d_p < 0:
-                                if len(grp_top) > 0: grp_top.loc[len(grp_top)-1, f"{sel_year_rpt-1}년"] -= d_p
-                                    
                             grp_top = grp_top[(grp_top[f"{sel_year_rpt}년"] > 0) | (grp_top[f"{sel_year_rpt-1}년"] > 0)].reset_index(drop=True)
                             grp_top_30 = grp_top.head(30).copy()
                             
