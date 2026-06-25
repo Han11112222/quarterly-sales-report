@@ -759,22 +759,19 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby(grp_col, as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                         ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on=grp_col, how="outer").fillna(0)
                         
-                        diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - sum_act
-                        diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - sum_prev
                         ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                         
                         if len(ind_comp) > 10:
                             top10_df = ind_comp.iloc[:10].copy()
                             others_df = ind_comp.iloc[10:].copy()
-                            o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
-                            o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                            
+                            o_c = others_df[f"{sel_year_rpt}년"].sum()
+                            o_p = others_df[f"{sel_year_rpt-1}년"].sum()
+                            
                             others_row = pd.DataFrame([{grp_col: "기타", f"{sel_year_rpt}년": o_c, f"{sel_year_rpt-1}년": o_p}])
                             ind_comp_plot = pd.concat([top10_df, others_row], ignore_index=True)
                         else:
                             ind_comp_plot = ind_comp.copy()
-                            if len(ind_comp_plot) > 0:
-                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt}년"] -= diff_c
-                                ind_comp_plot.loc[len(ind_comp_plot)-1, f"{sel_year_rpt-1}년"] -= diff_p
                                 
                         ind_comp_plot["증감절대값"] = abs(ind_comp_plot[f"{sel_year_rpt}년"] - ind_comp_plot[f"{sel_year_rpt-1}년"])
                         max_diff_idx = ind_comp_plot["증감절대값"].idxmax()
@@ -828,9 +825,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     prev_ind_grp = df_sub_filtered[df_sub_filtered["연_csv"] == sel_year_rpt - 1].groupby("업종", as_index=False)[val_col].sum().rename(columns={val_col: f"{sel_year_rpt-1}년"})
                     ind_comp = pd.merge(curr_ind_grp, prev_ind_grp, on="업종", how="outer").fillna(0)
                     
-                    diff_c = ind_comp[f"{sel_year_rpt}년"].sum() - tgt_c
-                    diff_p = ind_comp[f"{sel_year_rpt-1}년"].sum() - tgt_p
-                    
                     sort_option = st.radio("표 정렬 기준", ["당해연도 판매량 순", "전년대비 증감량 순"], horizontal=True, key=f"sort_{usage_label}{key_sfx}")
                     if sort_option == "당해연도 판매량 순": ind_comp = ind_comp.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                     else:
@@ -841,16 +835,14 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     if len(ind_comp) > 10:
                         top10_df = ind_comp.iloc[:10].copy()
                         others_df = ind_comp.iloc[10:].copy()
-                        o_c = others_df[f"{sel_year_rpt}년"].sum() - diff_c
-                        o_p = others_df[f"{sel_year_rpt-1}년"].sum() - diff_p
+                        
+                        o_c = others_df[f"{sel_year_rpt}년"].sum()
+                        o_p = others_df[f"{sel_year_rpt-1}년"].sum()
+                        
                         o_diff = o_c - o_p
                         o_rate = (o_c / o_p * 100) if o_p > 0 else 0
                         others_row = pd.DataFrame([{"업종": "기타", f"{sel_year_rpt}년": o_c, f"{sel_year_rpt-1}년": o_p, "증감": o_diff, "대비(%)": o_rate}])
                         ind_comp = pd.concat([top10_df, others_row], ignore_index=True)
-                    else:
-                        if len(ind_comp) > 0:
-                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt}년"] -= diff_c
-                            ind_comp.loc[len(ind_comp)-1, f"{sel_year_rpt-1}년"] -= diff_p
                     
                     ind_comp["증감"] = ind_comp[f"{sel_year_rpt}년"] - ind_comp[f"{sel_year_rpt-1}년"]
                     ind_comp["대비(%)"] = np.where(ind_comp[f"{sel_year_rpt-1}년"] > 0, (ind_comp[f"{sel_year_rpt}년"] / ind_comp[f"{sel_year_rpt-1}년"]) * 100, 0)
@@ -909,35 +901,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             
                             grp_top = pd.merge(c_curr_all, c_prev_all, on=["고객명", "업종"], how="outer").fillna(0)
                             
-                            diff_c_top = grp_top[f"{sel_year_rpt}년"].sum() - tgt_c
-                            diff_p_top = grp_top[f"{sel_year_rpt-1}년"].sum() - tgt_p
-
                             grp_top = grp_top.sort_values(f"{sel_year_rpt}년", ascending=False).reset_index(drop=True)
                             
-                            d_c = diff_c_top
-                            if d_c > 0:
-                                for idx in reversed(grp_top.index):
-                                    if grp_top.loc[idx, f"{sel_year_rpt}년"] >= d_c:
-                                        grp_top.loc[idx, f"{sel_year_rpt}년"] -= d_c
-                                        d_c = 0; break
-                                    else:
-                                        d_c -= grp_top.loc[idx, f"{sel_year_rpt}년"]
-                                        grp_top.loc[idx, f"{sel_year_rpt}년"] = 0
-                            elif d_c < 0:
-                                if len(grp_top) > 0: grp_top.loc[len(grp_top)-1, f"{sel_year_rpt}년"] -= d_c
-                                    
-                            d_p = diff_p_top
-                            if d_p > 0:
-                                for idx in reversed(grp_top.index):
-                                    if grp_top.loc[idx, f"{sel_year_rpt-1}년"] >= d_p:
-                                        grp_top.loc[idx, f"{sel_year_rpt-1}년"] -= d_p
-                                        d_p = 0; break
-                                    else:
-                                        d_p -= grp_top.loc[idx, f"{sel_year_rpt-1}년"]
-                                        grp_top.loc[idx, f"{sel_year_rpt-1}년"] = 0
-                            elif d_p < 0:
-                                if len(grp_top) > 0: grp_top.loc[len(grp_top)-1, f"{sel_year_rpt-1}년"] -= d_p
-                                    
                             grp_top = grp_top[(grp_top[f"{sel_year_rpt}년"] > 0) | (grp_top[f"{sel_year_rpt-1}년"] > 0)].reset_index(drop=True)
                             grp_top_30 = grp_top.head(30).copy()
                             
