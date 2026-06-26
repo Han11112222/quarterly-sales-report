@@ -445,11 +445,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             st.markdown("#### 1. 연도별 전체 판매량 추이")
             df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(selected_years))]
             
-            # 🟢 에러를 유발했던 reset_index, melt, pivot 방식을 직관적인 리스트 매핑으로 변경
-            # 모든 그룹명 가져오기
             all_groups = df_long_rpt["그룹"].dropna().unique().tolist() if not df_long_rpt.empty else ["가정용", "산업용", "영업용", "업무용"]
             
-            # 딕셔너리로 데이터를 깔끔하게 채움 (KeyError 원천 차단)
             stack_data_list = []
             for yr in selected_years:
                 yr_df = df_stack[df_stack["연"] == yr]
@@ -462,7 +459,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             stack_pivot_table = pd.DataFrame(stack_data_list).set_index("연")
             stack_pivot_table["합계"] = stack_pivot_table.sum(axis=1)
             
-            # 다시 그래프용 긴 포맷(Long format)으로 풀기
             stack_grp_full = pd.DataFrame()
             if not stack_pivot_table.empty:
                 melted = stack_pivot_table.drop(columns=["합계"]).reset_index()
@@ -474,7 +470,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
 
                 fig_stack = px.bar(stack_grp_full, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
-                fig_stack.update_traces(textposition='inside', insidetextanchor='middle')
+                
+                # 🟢 수정: 폰트 사이즈 12로 고정
+                fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
                 st.plotly_chart(fig_stack, use_container_width=True)
             
             st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
@@ -515,7 +513,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             else:
                 df_ind_filtered = pd.DataFrame(columns=["연_csv", "단순업종", val_col])
                 
-            # 🟢 2021~2024 과거 데이터 하드코딩 (TJ -> GJ 단위 변환 적용 완료)
             historical_ind_gj = {
                 2021: {"섬유업종": 3420283, "펄프업종": 2296957, "1차금속": 1706564, "식료품": 932079, "기타": 3278497},
                 2022: {"섬유업종": 3191900, "펄프업종": 2050939, "1차금속": 1589989, "식료품": 925398, "기타": 3255788},
@@ -523,12 +520,10 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 2024: {"섬유업종": 2548101, "펄프업종": 1985362, "1차금속": 1501112, "식료품": 881977, "기타": 2816094},
             }
 
-            # 🟢 KeyError 방지를 위한 딕셔너리 매핑 생성 (과거 하드코딩 데이터 연동)
             ind_data_list = []
             for yr in selected_years:
                 row_dict = {"연_csv": yr}
                 
-                # 과거연도이며 GJ기준 열람 시 하드코딩 데이터 주입, 그 외는 CSV 연산
                 if yr in historical_ind_gj and unit_str == "GJ":
                     for tc in ind_target_cols:
                         row_dict[tc] = historical_ind_gj[yr].get(tc, 0)
@@ -553,7 +548,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 title=f"연도별 산업용 세부 업종 판매량 추이", text="텍스트"
             )
             fig_ind_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
-            fig_ind_stack.update_traces(textposition='inside', insidetextanchor='middle')
+            
+            # 🟢 수정: 폰트 사이즈 12로 고정
+            fig_ind_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
             st.plotly_chart(fig_ind_stack, use_container_width=True)
             
             st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
@@ -601,7 +598,32 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                             df_rate = pd.read_csv(rate_files[0], encoding='utf-8-sig')
                         else:
                             df_rate = pd.read_excel(rate_files[0])
-                        st.dataframe(center_style(df_rate.style), use_container_width=True)
+                            
+                        # 🟢 수정: 업로드된 엑셀/CSV에서 필요한 구청 및 보급률만 파싱하여 가로형 표 구성
+                        districts_order = ["중구", "동구", "서구", "남구", "북구", "수성구", "달서구", "달성군", "대구시 계", "전체"]
+                        rates_dict = {}
+                        
+                        # 이미 가로형태로 깔끔하게 정리된 파일일 경우 그대로 표출
+                        if "중구" in df_rate.columns:
+                            st.dataframe(center_style(df_rate.style), use_container_width=True, hide_index=True)
+                        else:
+                            # 2번째 사진과 같은 세로형 원본일 경우 파싱
+                            for i in range(len(df_rate)):
+                                val0 = str(df_rate.iloc[i, 0]).strip()
+                                if val0 in districts_order:
+                                    try:
+                                        # 마지막 열(또는 4번째 열)에 위치한 수치를 %로 변환
+                                        rate_val = float(df_rate.iloc[i, -1])
+                                        rates_dict[val0] = f"{rate_val * 100:.1f}%"
+                                    except:
+                                        pass
+                                        
+                            if rates_dict:
+                                clean_df = pd.DataFrame([{"구분": "보급률", **{d: rates_dict.get(d, "-") for d in districts_order}}])
+                                st.dataframe(center_style(clean_df.style), use_container_width=True, hide_index=True)
+                            else:
+                                st.dataframe(center_style(df_rate.style), use_container_width=True)
+                                
                     else:
                         st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
                 except Exception as e:
