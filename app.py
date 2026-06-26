@@ -471,7 +471,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 fig_stack = px.bar(stack_grp_full, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
                 
-                # 🟢 수정: 폰트 사이즈 12로 고정
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
                 st.plotly_chart(fig_stack, use_container_width=True)
             
@@ -549,17 +548,26 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             )
             fig_ind_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
             
-            # 🟢 수정: 폰트 사이즈 12로 고정
             fig_ind_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
             st.plotly_chart(fig_ind_stack, use_container_width=True)
             
             st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
+            
+            # 🟢 수정부분: 표 안에 비율(%)을 함께 표기하는 로직 추가
             ind_table = ind_pivot.copy()
             ind_table["💡 총계"] = ind_table.sum(axis=1)
+            
+            for col in ind_target_cols:
+                ind_table[col] = ind_table.apply(
+                    lambda row: f"{row[col]:,.0f} ({(row[col] / row['💡 총계'] * 100):.1f}%)" if row['💡 총계'] > 0 else f"{row[col]:,.0f} (0.0%)", 
+                    axis=1
+                )
+            
+            # 합계는 콤마 포맷만 유지
+            ind_table["💡 총계"] = ind_table["💡 총계"].apply(lambda x: f"{x:,.0f}")
             ind_table = ind_table.reset_index().rename(columns={"연_csv": "연도"})
             
-            format_dict_ind = {col: "{:,.0f}" for col in ind_table.columns if col != "연도"}
-            st.dataframe(center_style(ind_table.style.format(format_dict_ind)), use_container_width=True, hide_index=True)
+            st.dataframe(center_style(ind_table.style), use_container_width=True, hide_index=True)
 
             latest_year_ind = max(selected_years) if selected_years else 2025
             total_latest_ind = ind_pivot.loc[latest_year_ind].sum() if latest_year_ind in ind_pivot.index else 0
@@ -599,20 +607,16 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                         else:
                             df_rate = pd.read_excel(rate_files[0])
                             
-                        # 🟢 수정: 업로드된 엑셀/CSV에서 필요한 구청 및 보급률만 파싱하여 가로형 표 구성
                         districts_order = ["중구", "동구", "서구", "남구", "북구", "수성구", "달서구", "달성군", "대구시 계", "전체"]
                         rates_dict = {}
                         
-                        # 이미 가로형태로 깔끔하게 정리된 파일일 경우 그대로 표출
                         if "중구" in df_rate.columns:
                             st.dataframe(center_style(df_rate.style), use_container_width=True, hide_index=True)
                         else:
-                            # 2번째 사진과 같은 세로형 원본일 경우 파싱
                             for i in range(len(df_rate)):
                                 val0 = str(df_rate.iloc[i, 0]).strip()
                                 if val0 in districts_order:
                                     try:
-                                        # 마지막 열(또는 4번째 열)에 위치한 수치를 %로 변환
                                         rate_val = float(df_rate.iloc[i, -1])
                                         rates_dict[val0] = f"{rate_val * 100:.1f}%"
                                     except:
