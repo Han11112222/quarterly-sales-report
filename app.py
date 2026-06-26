@@ -250,7 +250,7 @@ st.title("📊 판매량 분석 보고서")
 
 with st.sidebar:
     st.header("🏢 보고서 모드 설정")
-    app_mode = st.radio("조회 모드 선택", ["for Executive", "for Sharing", "for 대구시장 보고용"])
+    app_mode = st.radio("조회 모드 선택", ["for Executive", "for Sharing", "for summary"])
     st.markdown("---")
 
     st.header("📂 데이터 불러오기")
@@ -398,7 +398,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             df_csv_tab["연_csv"] = df_csv_tab["날짜_파싱"].dt.year
             df_csv_tab["월_csv"] = df_csv_tab["날짜_파싱"].dt.month
         
-        if app_mode != "for 대구시장 보고용":
+        if app_mode != "for summary":
             c_y, c_q, c_empty = st.columns([1, 1, 2])
             with c_y: sel_year_rpt = st.selectbox("기준 연도", years_available, index=default_y_index, key=f"rpt_yr{key_sfx}")
             with c_q: sel_quarter = st.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
@@ -408,7 +408,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             sel_quarter = "4Q (1~12월 누적)"
             max_month = 12
         
-        mode_suffix = "_sharing" if app_mode == "for Sharing" else ("_mayor" if app_mode == "for 대구시장 보고용" else "_executive")
+        mode_suffix = "_sharing" if app_mode == "for Sharing" else ("_mayor" if app_mode == "for summary" else "_executive")
         report_db_key = f"{sel_year_rpt}_{sel_quarter[:2]}_{unit_str}{mode_suffix}"
         
         if report_db_key not in comments_db: comments_db[report_db_key] = {}
@@ -416,10 +416,10 @@ for idx, rpt_tab in enumerate(rpt_tabs):
         st.markdown("<hr style='margin: 10px 0 30px 0;'>", unsafe_allow_html=True)
 
         # ─────────────────────────────────────────────────────────
-        # 🟢 대구시장 보고용 특화 대시보드 렌더링
+        # 🟢 요약 보고용 특화 대시보드 렌더링
         # ─────────────────────────────────────────────────────────
-        if app_mode == "for 대구시장 보고용":
-            st.markdown(f"### 🏢 대구시장 보고용 요약 대시보드")
+        if app_mode == "for summary":
+            st.markdown(f"### 🏢 요약 대시보드 (for summary)")
             
             # 🟢 공통 연도 선택 필터 추가 (1번, 2번 그래프 동시 적용)
             available_years_rpt = df_long_rpt["연"].dropna().unique().tolist() if not df_long_rpt.empty else []
@@ -515,14 +515,28 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             else:
                 df_ind_filtered = pd.DataFrame(columns=["연_csv", "단순업종", val_col])
                 
-            # 🟢 KeyError 방지를 위한 딕셔너리 매핑 생성
+            # 🟢 2021~2024 과거 데이터 하드코딩 (TJ -> GJ 단위 변환 적용 완료)
+            historical_ind_gj = {
+                2021: {"섬유업종": 3420283, "펄프업종": 2296957, "1차금속": 1706564, "식료품": 932079, "기타": 3278497},
+                2022: {"섬유업종": 3191900, "펄프업종": 2050939, "1차금속": 1589989, "식료품": 925398, "기타": 3255788},
+                2023: {"섬유업종": 2731789, "펄프업종": 1923913, "1차금속": 1562081, "식료품": 901739, "기타": 2847261},
+                2024: {"섬유업종": 2548101, "펄프업종": 1985362, "1차금속": 1501112, "식료품": 881977, "기타": 2816094},
+            }
+
+            # 🟢 KeyError 방지를 위한 딕셔너리 매핑 생성 (과거 하드코딩 데이터 연동)
             ind_data_list = []
             for yr in selected_years:
-                yr_df = df_ind_filtered[df_ind_filtered["연_csv"] == yr] if not df_ind_filtered.empty else pd.DataFrame()
                 row_dict = {"연_csv": yr}
-                for tc in ind_target_cols:
-                    val = yr_df[yr_df["단순업종"] == tc][val_col].sum() if not yr_df.empty else 0
-                    row_dict[tc] = val
+                
+                # 과거연도이며 GJ기준 열람 시 하드코딩 데이터 주입, 그 외는 CSV 연산
+                if yr in historical_ind_gj and unit_str == "GJ":
+                    for tc in ind_target_cols:
+                        row_dict[tc] = historical_ind_gj[yr].get(tc, 0)
+                else:
+                    yr_df = df_ind_filtered[df_ind_filtered["연_csv"] == yr] if not df_ind_filtered.empty else pd.DataFrame()
+                    for tc in ind_target_cols:
+                        val = yr_df[yr_df["단순업종"] == tc][val_col].sum() if not yr_df.empty else 0
+                        row_dict[tc] = val
                 ind_data_list.append(row_dict)
                 
             ind_pivot = pd.DataFrame(ind_data_list).set_index("연_csv")
@@ -594,7 +608,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
             st.markdown("<br><br>", unsafe_allow_html=True)
             
-            # 대구시장 보고용 화면 렌더링이 끝나면 아래의 기본 보고서 화면은 스킵
+            # 요약 보고용 화면 렌더링이 끝나면 아래의 기본 보고서 화면은 스킵
             continue
 
         # --- 2. At a Glance (기존 Executive / Sharing 모드) ---
