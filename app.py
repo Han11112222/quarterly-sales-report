@@ -353,7 +353,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             val_col = "사용량(m3)"
             key_sfx = "_vol"
 
-        st.markdown(f"#### 📅 보고서 기준 일자 ({app_mode})") 
+        # 🟢 수정: 'for summary' 화면에서는 "보고서 기준 일자" 숨김 처리
+        if app_mode != "for summary":
+            st.markdown(f"#### 📅 보고서 기준 일자 ({app_mode})") 
         
         years_available = [2024, 2025, 2026]
         default_y_index = len(years_available) - 1
@@ -445,14 +447,18 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             st.markdown("#### 1. 연도별 전체 판매량 추이")
             df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(selected_years))]
             
-            all_groups = df_long_rpt["그룹"].dropna().unique().tolist() if not df_long_rpt.empty else ["가정용", "산업용", "영업용", "업무용"]
+            # 🟢 수정: 가정용, 산업용, 영업용, 업무용, 기타(나머지) 그룹화 적용
+            target_groups = ["가정용", "산업용", "영업용", "업무용", "기타"]
             
             stack_data_list = []
             for yr in selected_years:
                 yr_df = df_stack[df_stack["연"] == yr]
                 row_dict = {"연": yr}
-                for grp in all_groups:
-                    val = yr_df[yr_df["그룹"] == grp]["값"].sum() if not yr_df.empty else 0
+                for grp in target_groups:
+                    if grp == "기타":
+                        val = yr_df[~yr_df["그룹"].isin(["가정용", "산업용", "영업용", "업무용"])]["값"].sum() if not yr_df.empty else 0
+                    else:
+                        val = yr_df[yr_df["그룹"] == grp]["값"].sum() if not yr_df.empty else 0
                     row_dict[grp] = val
                 stack_data_list.append(row_dict)
                 
@@ -468,23 +474,22 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 stack_grp_full["비율(%)"] = np.where(yearly_totals > 0, (stack_grp_full["값"] / yearly_totals * 100).round(1), 0)
                 stack_grp_full["텍스트"] = stack_grp_full.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
-                # 🟢 X축 데이터를 문자열로 변환하여 뭉침 방지
                 stack_grp_full["연_str"] = stack_grp_full["연"].astype(str)
                 fig_stack = px.bar(stack_grp_full, x="연_str", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
                 
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
                 
-                # 🟢 전체 판매량 상단 표기 (Annotation)
+                # 🟢 수정: 전체 판매량 상단 표기 30% 크고 진하게 <b> 태그 적용 (size 16)
                 for yr in selected_years:
                     val = stack_pivot_table.loc[yr, "합계"]
                     fig_stack.add_annotation(
                         x=str(yr),
                         y=val,
-                        text=f"[{val:,.0f} {unit_str}]",
+                        text=f"<b>[{val:,.0f} {unit_str}]</b>",
                         showarrow=False,
                         yshift=20,
-                        font=dict(size=12, color="black")
+                        font=dict(size=16, color="black")
                     )
 
                 st.plotly_chart(fig_stack, use_container_width=True)
@@ -600,7 +605,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             
             # 3. 도시가스 보급률 현황
             st.markdown("#### 3. 도시가스 보급률 현황")
-            # 🟢 수정: 카드 4개로 변경 (칠곡군 삭제)
             col1, col2, col3, col4 = st.columns(4)
             with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
             with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
