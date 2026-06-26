@@ -468,20 +468,23 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 stack_grp_full["비율(%)"] = np.where(yearly_totals > 0, (stack_grp_full["값"] / yearly_totals * 100).round(1), 0)
                 stack_grp_full["텍스트"] = stack_grp_full.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
 
-                fig_stack = px.bar(stack_grp_full, x="연", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
-                fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
+                # 🟢 X축 데이터를 문자열로 변환하여 뭉침 방지
+                stack_grp_full["연_str"] = stack_grp_full["연"].astype(str)
+                fig_stack = px.bar(stack_grp_full, x="연_str", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
+                fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
                 
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
                 
-                # 🟢 추가: 전체 판매량 상단 표기 (Annotation)
-                for yr, row in stack_pivot_table.iterrows():
+                # 🟢 전체 판매량 상단 표기 (Annotation)
+                for yr in selected_years:
+                    val = stack_pivot_table.loc[yr, "합계"]
                     fig_stack.add_annotation(
                         x=str(yr),
-                        y=row["합계"],
-                        text=f"[{row['합계']:,.0f} {unit_str}]",
+                        y=val,
+                        text=f"[{val:,.0f} {unit_str}]",
                         showarrow=False,
                         yshift=20,
-                        font=dict(size=12, color="black", weight="bold")
+                        font=dict(size=12, color="black")
                     )
 
                 st.plotly_chart(fig_stack, use_container_width=True)
