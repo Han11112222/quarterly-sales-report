@@ -472,6 +472,18 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
                 
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
+                
+                # 🟢 추가: 전체 판매량 상단 표기 (Annotation)
+                for yr, row in stack_pivot_table.iterrows():
+                    fig_stack.add_annotation(
+                        x=str(yr),
+                        y=row["합계"],
+                        text=f"[{row['합계']:,.0f} {unit_str}]",
+                        showarrow=False,
+                        yshift=20,
+                        font=dict(size=12, color="black", weight="bold")
+                    )
+
                 st.plotly_chart(fig_stack, use_container_width=True)
             
             st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
@@ -553,7 +565,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             
             st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
             
-            # 🟢 수정부분: 표 안에 비율(%)을 함께 표기하는 로직 추가
             ind_table = ind_pivot.copy()
             ind_table["💡 총계"] = ind_table.sum(axis=1)
             
@@ -563,7 +574,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     axis=1
                 )
             
-            # 합계는 콤마 포맷만 유지
             ind_table["💡 총계"] = ind_table["💡 총계"].apply(lambda x: f"{x:,.0f}")
             ind_table = ind_table.reset_index().rename(columns={"연_csv": "연도"})
             
@@ -587,12 +597,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             
             # 3. 도시가스 보급률 현황
             st.markdown("#### 3. 도시가스 보급률 현황")
-            col1, col2, col3, col4, col5 = st.columns(5)
+            # 🟢 수정: 카드 4개로 변경 (칠곡군 삭제)
+            col1, col2, col3, col4 = st.columns(4)
             with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
             with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
             with col3: render_metric_card("🏘️", "경산시", "101.3%", "", "#ff7f0e")
             with col4: render_metric_card("⛰️", "고령군", "38.0%", "", "#d62728")
-            with col5: render_metric_card("🏞️", "칠곡군", "데이터참조", "※ 파일 연동", "#9467bd")
             
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -634,7 +644,6 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                     st.info("💡 GitHub 레포지토리에 '보급률 현황' 파일이 인식되면 구청별 상세 내역이 표출됩니다.")
             st.markdown("<br><br>", unsafe_allow_html=True)
             
-            # 요약 보고용 화면 렌더링이 끝나면 아래의 기본 보고서 화면은 스킵
             continue
 
         # --- 2. At a Glance (기존 Executive / Sharing 모드) ---
