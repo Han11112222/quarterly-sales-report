@@ -609,9 +609,35 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             ind_stack_full["비율(%)"] = np.where(yearly_ind_totals > 0, (ind_stack_full[val_col] / yearly_ind_totals * 100).round(1), 0)
             ind_stack_full["텍스트"] = ind_stack_full.apply(lambda x: f"{x[val_col]:,.0f}<br>({x['비율(%)']}%)" if x[val_col] > 0 else "", axis=1)
 
-            fig_ind_stack = px.bar(ind_stack_full, x="연_csv", y=val_col, color="단순업종", title=f"연도별 산업용 세부 업종 판매량 추이", text="텍스트")
-            fig_ind_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20), xaxis=dict(type='category'))
-            fig_ind_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
+            # ✅ 세련된 색상 팔레트 (모노톤 블루 계열)
+            ind_color_map = {
+                "섬유업종": "#1B3A6B",   # 딥 네이비
+                "펄프업종": "#2E6FAB",   # 미드 블루
+                "1차금속":  "#4A9CC7",   # 스카이 블루
+                "식료품":   "#7BBDD4",   # 라이트 블루
+                "기타":     "#B0CFE0",   # 페일 블루
+            }
+            fig_ind_stack = px.bar(
+                ind_stack_full, x="연_csv", y=val_col, color="단순업종",
+                title=f"연도별 산업용 세부 업종 판매량 추이",
+                text="텍스트",
+                color_discrete_map=ind_color_map,
+                category_orders={"단순업종": ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"]}
+            )
+            fig_ind_stack.update_layout(
+                xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})",
+                barmode="stack", margin=dict(t=40, b=20, l=20, r=20),
+                xaxis=dict(type='category', linecolor="#DDDDDD"),
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(color="#333333"),
+                legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.01),
+                yaxis=dict(gridcolor="#EEEEEE", gridwidth=1),
+            )
+            fig_ind_stack.update_traces(
+                textposition='inside', insidetextanchor='middle',
+                textfont=dict(size=12, color="white"),
+                marker_line_width=0,
+            )
             st.plotly_chart(fig_ind_stack, use_container_width=True)
 
             st.markdown(f"**📊 연도별 산업용 구성비 상세 표 ({unit_str})**")
@@ -637,7 +663,12 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             """, unsafe_allow_html=True)
 
             # 3. 도시가스 보급률 현황
-            st.markdown("#### 3. 도시가스 보급률 현황")
+            st.markdown("""
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <h4 style="margin:0;">3. 도시가스 보급률 현황</h4>
+                <span style="font-size:13px; color:#888; font-weight:500;">[2025.12 기준]</span>
+            </div>
+            """, unsafe_allow_html=True)
             col1, col2, col3, col4 = st.columns(4)
             with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
             with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
