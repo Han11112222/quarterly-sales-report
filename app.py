@@ -511,10 +511,33 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 stack_grp_full["텍스트"] = stack_grp_full.apply(lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1)
                 stack_grp_full["연_str"] = stack_grp_full["연"].astype(str)
 
-                fig_stack = px.bar(stack_grp_full, x="연_str", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
-                fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
-                # ✅ 수정: 모든 그룹 텍스트 사이즈를 가정용과 동일하게 12로 통일
-                fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
+                # ✅ 세련된 색상 팔레트 (딥 네이비 계열)
+                color_map = {
+                    "가정용": "#1B3A6B",
+                    "산업용": "#2E86AB",
+                    "기타":   "#8DA9C4",
+                }
+                fig_stack = px.bar(
+                    stack_grp_full, x="연_str", y="값", color="그룹",
+                    title=f"그룹별 판매량 추이 ({unit_str})",
+                    text="텍스트",
+                    color_discrete_map=color_map,
+                    category_orders={"그룹": ["가정용", "산업용", "기타"]}
+                )
+                fig_stack.update_layout(
+                    xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})",
+                    barmode="stack", margin=dict(t=40, b=20, l=20, r=20),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    font=dict(color="#333333"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    yaxis=dict(gridcolor="#EEEEEE", gridwidth=1),
+                    xaxis=dict(linecolor="#DDDDDD"),
+                )
+                fig_stack.update_traces(
+                    textposition='inside', insidetextanchor='middle',
+                    textfont=dict(size=12, color="white"),
+                    marker_line_width=0,
+                )
 
                 for yr in selected_years:
                     val = stack_pivot_table.loc[yr, "합계"]
