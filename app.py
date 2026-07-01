@@ -482,7 +482,9 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             # 1. 연도별 전체 판매량 추이
             st.markdown("#### 1. 연도별 전체 판매량 추이")
             df_stack = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["연"].isin(selected_years))]
-            target_groups = ["가정용", "산업용", "영업용", "업무용", "기타"]
+
+            # ✅ 수정: 가정용 / 산업용 / 기타 3개 그룹으로 단순화
+            target_groups = ["가정용", "산업용", "기타"]
 
             stack_data_list = []
             for yr in selected_years:
@@ -490,7 +492,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 row_dict = {"연": yr}
                 for grp in target_groups:
                     if grp == "기타":
-                        val = yr_df[~yr_df["그룹"].isin(["가정용", "산업용", "영업용", "업무용"])]["값"].sum() if not yr_df.empty else 0
+                        # 가정용·산업용을 제외한 나머지 전체 합산
+                        val = yr_df[~yr_df["그룹"].isin(["가정용", "산업용"])]["값"].sum() if not yr_df.empty else 0
                     else:
                         val = yr_df[yr_df["그룹"] == grp]["값"].sum() if not yr_df.empty else 0
                     row_dict[grp] = val
@@ -510,6 +513,7 @@ for idx, rpt_tab in enumerate(rpt_tabs):
 
                 fig_stack = px.bar(stack_grp_full, x="연_str", y="값", color="그룹", title=f"그룹별 판매량 추이 ({unit_str})", text="텍스트")
                 fig_stack.update_layout(xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})", barmode="stack", margin=dict(t=40, b=20, l=20, r=20))
+                # ✅ 수정: 모든 그룹 텍스트 사이즈를 가정용과 동일하게 12로 통일
                 fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=12)
 
                 for yr in selected_years:
