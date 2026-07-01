@@ -630,13 +630,20 @@ for idx, rpt_tab in enumerate(rpt_tabs):
                 xaxis=dict(type='category', linecolor="#DDDDDD"),
                 plot_bgcolor="white", paper_bgcolor="white",
                 font=dict(color="#333333"),
-                legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.01),
+                legend=dict(
+                    orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.01,
+                    traceorder="normal",
+                ),
                 yaxis=dict(gridcolor="#EEEEEE", gridwidth=1),
             )
             fig_ind_stack.update_traces(
                 textposition='inside', insidetextanchor='middle',
                 textfont=dict(size=12, color="white"),
                 marker_line_width=0,
+            )
+            # ✅ 기타 막대 숫자만 검정으로 변경 (가장 상단에 위치하여 가독성 향상)
+            fig_ind_stack.for_each_trace(
+                lambda t: t.update(textfont=dict(size=12, color="black")) if t.name == "기타" else None
             )
             st.plotly_chart(fig_ind_stack, use_container_width=True)
 
@@ -663,12 +670,8 @@ for idx, rpt_tab in enumerate(rpt_tabs):
             """, unsafe_allow_html=True)
 
             # 3. 도시가스 보급률 현황
-            st.markdown("""
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <h4 style="margin:0;">3. 도시가스 보급률 현황</h4>
-                <span style="font-size:13px; color:#888; font-weight:500;">[2025.12 기준]</span>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("#### 3. 도시가스 보급률 현황")
+            st.markdown("<span style='font-size:13px; color:#888; font-weight:500;'>&#91;2025.12 기준&#93;</span>", unsafe_allow_html=True)
             col1, col2, col3, col4 = st.columns(4)
             with col1: render_metric_card("📊", "전체 보급률", "96.8%", "", "#1f77b4")
             with col2: render_metric_card("🏙️", "대구시", "97.5%", "", "#2ca02c")
