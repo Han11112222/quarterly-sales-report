@@ -6,5 +6,8 @@
     "2026_1Q_GJ_sharing": {
         "glance": "test",
         "review": "test test"
+    },
+    "2026_2Q_GJ_executive": {
+        "home": "기온\n이상 고온 : 5월\n이상 저온 :  1월, 3월, 6\n\n[기온링크]\nhttps://temperature-analysis-choihanyoub.streamlit.app/"
     }
 }
