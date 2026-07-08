@@ -8,6 +8,7 @@
         "review": "test test"
     },
     "2026_2Q_GJ_executive": {
-        "home": "기온\n이상 고온 : 5월\n이상 저온 :  1월, 3월, 6월\n\n[기온링크]\nhttps://temperature-analysis-choihanyoub.streamlit.app/"
+        "home": "기온\n이상 고온 : 5월\n이상 저온 :  1월, 3월, 6월\n\n[기온링크]\nhttps://temperature-analysis-choihanyoub.streamlit.app/",
+        "ind": "섬유업종 : -53,228 GJ, 95.7%\n - (주)태창섬유 제1공장  (-22,504 GJ, 34.7%) _ LPG재전환\n - 주식회사 삼일 다이텍  _  LPG전환(25.10)\n\n1차금속 제조업 : -40,325 GJ, 94.3%\n - (주)남선알미늄 (-24,597 GJ, 33.3%)\n -  조일알미늄(주) (-11,573 GJ, -97.0%)"
     }
 }
