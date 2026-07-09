@@ -726,9 +726,10 @@ if not df_long_rpt.empty:
     with col_d1: render_rate_donut(achieve_rate_plan, COLOR_ACT, "계획대비 달성률")
     with col_d2: render_rate_donut(achieve_rate_prev, COLOR_PREV, "전년대비 증감률")
 
-render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120,
-                       f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성.",
-                       f"glance_{key_sfx}{mode_suffix}")
+# ↓↓↓ 아래 4줄 삭제: "분기 핵심 요약 작성" 코멘트 박스 제거 ↓↓↓
+# render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120,
+#                        f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성.",
+#                        f"glance_{key_sfx}{mode_suffix}")
 st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
 # 전체 판매량 요약
