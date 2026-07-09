@@ -348,30 +348,48 @@ if app_mode == "for Sharing":
     else:
         st.success("🔓 인증되었습니다. 공유용 화면을 표시합니다.")
 
+import random
+_loading_msgs = [
+    "⛽ 도시가스 배관을 점검하는 중입니다...",
+    "📊 숫자들이 줄을 서고 있습니다...",
+    "🔥 데이터를 가열하는 중입니다...",
+    "🧮 엑셀보다 빠르게 계산 중입니다...",
+    "📈 그래프가 그려질 준비를 하고 있습니다...",
+    "🗂️ 파일들을 열심히 정리하는 중입니다...",
+    "💡 인사이트를 발굴하는 중입니다...",
+    "🏗️ 보고서를 건설 중입니다...",
+    "☕ 커피 한 잔 하고 오셔도 됩니다...",
+    "🐢 빠른 달팽이가 데이터를 나르는 중입니다...",
+]
+
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
 if 'excel_bytes' in locals() and excel_bytes is not None:
-    sheets_rpt = load_all_sheets(excel_bytes)
-    long_dict_rpt = build_long_dict(sheets_rpt)
+    with st.spinner(random.choice(_loading_msgs)):
+        sheets_rpt = load_all_sheets(excel_bytes)
+        long_dict_rpt = build_long_dict(sheets_rpt)
 
 df_csv = pd.DataFrame()
 if src_csv == "레포 파일 사용":
     repo_dir = Path(__file__).parent
     all_csvs = list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))
     all_csvs = list(set(all_csvs))
-    csv_list = []
-    for p in all_csvs:
-        try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
-        except:
-            try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
-            except: pass
-    if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
+    if all_csvs:
+        with st.spinner("📂 업종별 상세 데이터를 스캔하는 중입니다..."):
+            csv_list = []
+            for p in all_csvs:
+                try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
+                except:
+                    try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
+                    except: pass
+            if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
 
 if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
 
 if not df_csv.empty:
-    if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
-    if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
+    with st.spinner("🧹 데이터를 깔끔하게 다듬는 중입니다..."):
+        if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
+        if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
 
 comments_db = load_comments_db()
 
