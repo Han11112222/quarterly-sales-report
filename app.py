@@ -1060,6 +1060,85 @@ else:
     render_attachment_report("산업용", 6, key_sfx)
     render_attachment_report("업무용", 7, key_sfx)
 
+# ─────────────────────────────────────────────────────────
+# 연도별 전체 판매량 추이 (for Executive 하단 추가)
+# ─────────────────────────────────────────────────────────
+st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
+st.markdown("#### 📊 8. 연도별 전체 판매량 추이")
+
+if not df_long_rpt.empty:
+    # 현재 선택된 분기(max_month)까지의 실적만 필터링
+    all_years_exec = sorted(df_long_rpt["연"].unique().tolist())
+    df_stack_exec = df_long_rpt[
+        (df_long_rpt["계획/실적"] == "실적") &
+        (df_long_rpt["월"] <= max_month) &
+        (df_long_rpt["연"].isin(all_years_exec))
+    ]
+
+    exec_target_groups = ["가정용", "산업용", "기타"]
+    exec_stack_data = []
+    for yr in all_years_exec:
+        yr_df = df_stack_exec[df_stack_exec["연"] == yr]
+        row_dict = {"연": yr}
+        for grp in exec_target_groups:
+            if grp == "기타":
+                v = yr_df[~yr_df["그룹"].isin(["가정용", "산업용"])]["값"].sum() if not yr_df.empty else 0
+            else:
+                v = yr_df[yr_df["그룹"] == grp]["값"].sum() if not yr_df.empty else 0
+            row_dict[grp] = v
+        exec_stack_data.append(row_dict)
+
+    exec_pivot = pd.DataFrame(exec_stack_data).set_index("연")
+    exec_pivot["합계"] = exec_pivot[exec_target_groups].sum(axis=1)
+
+    exec_melted = exec_pivot.drop(columns=["합계"]).reset_index()
+    exec_melted = exec_melted.melt(id_vars=["연"], var_name="그룹", value_name="값")
+    exec_yearly_totals = exec_melted.groupby("연")["값"].transform("sum")
+    exec_melted["비율(%)"] = np.where(exec_yearly_totals > 0, (exec_melted["값"] / exec_yearly_totals * 100).round(1), 0)
+    exec_melted["텍스트"] = exec_melted.apply(
+        lambda x: f"{x['값']:,.0f}<br>({x['비율(%)']}%)" if x['값'] > 0 else "", axis=1
+    )
+    exec_melted["연_str"] = exec_melted["연"].astype(str)
+
+    exec_color_map = {"가정용": "#1B3A6B", "산업용": "#2E86AB", "기타": "#8DA9C4"}
+    fig_exec_stack = px.bar(
+        exec_melted, x="연_str", y="값", color="그룹",
+        title=f"그룹별 판매량 추이 ({unit_str}) — {sel_quarter[:2]} 누적",
+        text="텍스트",
+        color_discrete_map=exec_color_map,
+        category_orders={"그룹": ["가정용", "산업용", "기타"]}
+    )
+    fig_exec_stack.update_layout(
+        xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})",
+        barmode="stack", margin=dict(t=40, b=20, l=20, r=20),
+        plot_bgcolor="white", paper_bgcolor="white",
+        font=dict(color="#333333"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(gridcolor="#EEEEEE", gridwidth=1),
+        xaxis=dict(linecolor="#DDDDDD"),
+    )
+    fig_exec_stack.update_traces(
+        textposition='inside', insidetextanchor='middle',
+        textfont=dict(size=12, color="white"),
+        marker_line_width=0,
+    )
+    for yr in all_years_exec:
+        val = exec_pivot.loc[yr, "합계"]
+        fig_exec_stack.add_annotation(
+            x=str(yr), y=val,
+            text=f"<b>[{val:,.0f} {unit_str}]</b>",
+            showarrow=False, yshift=20,
+            font=dict(size=16, color="black")
+        )
+    st.plotly_chart(fig_exec_stack, use_container_width=True)
+
+    st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str}) — {sel_quarter[:2]} 누적**")
+    exec_table = exec_pivot.reset_index().rename(columns={"연": "연도"})
+    exec_fmt = {col: "{:,.0f}" for col in exec_table.columns if col != "연도"}
+    st.dataframe(center_style(exec_table.style.format(exec_fmt)), use_container_width=True, hide_index=True)
+else:
+    st.info("판매량 데이터가 없습니다.")
+
 # PDF 인쇄
 st.markdown("<hr style='border-top:2px solid #bbb;margin:40px 0 20px 0;'>", unsafe_allow_html=True)
 st.markdown("### 🖨️ 보고서 출력")
