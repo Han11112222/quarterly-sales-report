@@ -350,23 +350,65 @@ if app_mode == "for Sharing":
 
 import random
 _loading_msgs = [
-    "⛽ 도시가스 배관을 점검하는 중입니다...",
-    "📊 숫자들이 줄을 서고 있습니다...",
-    "🔥 데이터를 가열하는 중입니다...",
-    "🧮 엑셀보다 빠르게 계산 중입니다...",
-    "📈 그래프가 그려질 준비를 하고 있습니다...",
-    "🗂️ 파일들을 열심히 정리하는 중입니다...",
-    "💡 인사이트를 발굴하는 중입니다...",
-    "🏗️ 보고서를 건설 중입니다...",
-    "☕ 커피 한 잔 하고 오셔도 됩니다...",
-    "🐢 빠른 달팽이가 데이터를 나르는 중입니다...",
+    ("⛽", "도시가스 배관을 점검하는 중입니다", "잠시만 기다려 주세요!"),
+    ("📊", "숫자들이 줄을 서고 있습니다", "곧 멋진 그래프가 펼쳐집니다"),
+    ("🔥", "데이터를 가열하는 중입니다", "이 웹앱을 만드신 분은 정말 센스가 넘치시네요 😎"),
+    ("🧮", "엑셀보다 빠르게 계산 중입니다", "엑셀은 이제 안녕~"),
+    ("📈", "그래프가 그려질 준비를 하고 있습니다", "기대해 주세요!"),
+    ("🗂️", "파일들을 열심히 정리하는 중입니다", "담당자분의 노고에 박수를 👏"),
+    ("💡", "인사이트를 발굴하는 중입니다", "데이터 속에 보물이 숨어 있어요"),
+    ("🏗️", "보고서를 건설 중입니다", "완성까지 조금만 기다려 주세요"),
+    ("☕", "데이터를 끓이는 중입니다", "커피 한 잔 하고 오셔도 됩니다"),
+    ("🐢", "빠른 달팽이가 데이터를 나르는 중", "달팽이도 최선을 다하고 있습니다 🐌"),
 ]
+
+def show_loading_banner(icon, title, subtitle):
+    placeholder = st.empty()
+    placeholder.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+        border-radius: 16px;
+        padding: 32px 40px;
+        margin: 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        box-shadow: 0 8px 32px rgba(30,58,138,0.18);
+    ">
+        <div style="font-size: 56px; line-height:1;">{icon}</div>
+        <div>
+            <div style="font-size: 22px; font-weight: 800; color: #ffffff; margin-bottom: 6px; letter-spacing: -0.3px;">
+                {title}...
+            </div>
+            <div style="font-size: 15px; color: #bfdbfe; font-weight: 500;">
+                {subtitle}
+            </div>
+        </div>
+        <div style="margin-left:auto;">
+            <div style="
+                width: 36px; height: 36px;
+                border: 4px solid rgba(255,255,255,0.3);
+                border-top-color: #ffffff;
+                border-radius: 50%;
+                animation: spin 0.9s linear infinite;
+            "></div>
+        </div>
+    </div>
+    <style>
+    @keyframes spin {{
+        to {{ transform: rotate(360deg); }}
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+    return placeholder
 
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
 if 'excel_bytes' in locals() and excel_bytes is not None:
-    with st.spinner(random.choice(_loading_msgs)):
-        sheets_rpt = load_all_sheets(excel_bytes)
-        long_dict_rpt = build_long_dict(sheets_rpt)
+    _ic, _tt, _st = random.choice(_loading_msgs)
+    _ph = show_loading_banner(_ic, _tt, _st)
+    sheets_rpt = load_all_sheets(excel_bytes)
+    long_dict_rpt = build_long_dict(sheets_rpt)
+    _ph.empty()
 
 df_csv = pd.DataFrame()
 if src_csv == "레포 파일 사용":
@@ -374,22 +416,24 @@ if src_csv == "레포 파일 사용":
     all_csvs = list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))
     all_csvs = list(set(all_csvs))
     if all_csvs:
-        with st.spinner("📂 업종별 상세 데이터를 스캔하는 중입니다..."):
-            csv_list = []
-            for p in all_csvs:
-                try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
-                except:
-                    try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
-                    except: pass
-            if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
+        _ph2 = show_loading_banner("📂", "업종별 상세 데이터를 스캔하는 중입니다", "파일이 많을수록 더 풍성한 분석이 가능합니다 📁")
+        csv_list = []
+        for p in all_csvs:
+            try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
+            except:
+                try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
+                except: pass
+        if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
+        _ph2.empty()
 
 if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
 
 if not df_csv.empty:
-    with st.spinner("🧹 데이터를 깔끔하게 다듬는 중입니다..."):
-        if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
-        if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
+    _ph3 = show_loading_banner("🧹", "데이터를 깔끔하게 다듬는 중입니다", "숫자 하나하나 꼼꼼히 확인하고 있어요")
+    if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
+    if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
+    _ph3.empty()
 
 comments_db = load_comments_db()
 
