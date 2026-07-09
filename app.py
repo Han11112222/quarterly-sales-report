@@ -1061,14 +1061,16 @@ if app_mode == "for Sharing":
         render_attachment_report("업무용", 7, key_sfx)
 
 # ─────────────────────────────────────────────────────────
-# 연도별 전체 판매량 추이 (for Executive 하단 추가)
+# 연도별 전체 판매량 추이 (for Executive 전용)
 # ─────────────────────────────────────────────────────────
-st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
-st.markdown("#### 📊 6. 연도별 전체 판매량 추이")
+if app_mode == "for Executive":
+    st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
+    st.markdown("#### 📊 6. 연도별 전체 판매량 추이")
 
-if not df_long_rpt.empty:
-    # 현재 선택된 분기(max_month)까지의 실적만 필터링
-    all_years_exec = sorted([y for y in df_long_rpt["연"].unique().tolist() if y >= 2020])
+if app_mode == "for Executive" and not df_long_rpt.empty:
+    # 실적 데이터가 1건 이상 있는 연도만 포함 (데이터 없는 미래 연도 제외), 2020년 이상
+    actual_by_year = df_long_rpt[df_long_rpt["계획/실적"] == "실적"].groupby("연")["값"].sum()
+    all_years_exec = sorted([y for y in actual_by_year[actual_by_year > 0].index.tolist() if y >= 2020])
     df_stack_exec = df_long_rpt[
         (df_long_rpt["계획/실적"] == "실적") &
         (df_long_rpt["월"] <= max_month) &
@@ -1136,8 +1138,6 @@ if not df_long_rpt.empty:
     exec_table = exec_pivot.reset_index().rename(columns={"연": "연도"})
     exec_fmt = {col: "{:,.0f}" for col in exec_table.columns if col != "연도"}
     st.dataframe(center_style(exec_table.style.format(exec_fmt)), use_container_width=True, hide_index=True)
-else:
-    st.info("판매량 데이터가 없습니다.")
 
 # PDF 인쇄
 st.markdown("<hr style='border-top:2px solid #bbb;margin:40px 0 20px 0;'>", unsafe_allow_html=True)
