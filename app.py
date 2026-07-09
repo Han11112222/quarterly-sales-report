@@ -1068,7 +1068,7 @@ st.markdown("#### 📊 8. 연도별 전체 판매량 추이")
 
 if not df_long_rpt.empty:
     # 현재 선택된 분기(max_month)까지의 실적만 필터링
-    all_years_exec = sorted(df_long_rpt["연"].unique().tolist())
+    all_years_exec = sorted([y for y in df_long_rpt["연"].unique().tolist() if y >= 2020])
     df_stack_exec = df_long_rpt[
         (df_long_rpt["계획/실적"] == "실적") &
         (df_long_rpt["월"] <= max_month) &
