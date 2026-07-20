@@ -535,6 +535,13 @@ st.markdown("<hr style='margin: 10px 0 30px 0;'>", unsafe_allow_html=True)
 # for summary 모드
 # ─────────────────────────────────────────────────────────
 if app_mode == "for summary":
+    st.info("🔒 'for summary' 모드입니다. 내용을 확인하려면 비밀번호를 입력해주세요.")
+    summary_pw = st.text_input("접근 비밀번호 (PW)", type="password", key="summary_pw_input")
+    if summary_pw != "1234":
+        if summary_pw != "": st.error("❌ 비밀번호가 일치하지 않습니다.")
+        st.stop()
+    else:
+        st.success("🔓 인증되었습니다. 요약 화면을 표시합니다.")
     st.markdown(f"### 🏢 요약 대시보드 (for summary)")
 
     available_years_rpt = df_long_rpt["연"].dropna().unique().tolist() if not df_long_rpt.empty else []
@@ -1111,7 +1118,7 @@ def render_attachment_report(usage_label, section_num, key_sfx):
                         textposition='auto'
                     ))
                     fig_cust_cum.add_annotation(x=0.5, y=1.05, xref="paper", yref="paper", text=f"<b>{yoy_text}</b>", showarrow=False, font=dict(size=13, color="#d32f2f" if diff_val < 0 else "#1f77b4"), bgcolor="#f8f9fa", bordercolor="#d0d7e5", borderwidth=1, borderpad=4)
-                    fig_cust_cum.update_layout(title=f"'{sel_cust}' 누적 사용량 ({sel_quarter[:2]})", margin=dict(t=50, b=10, l=10, r=10), height=350)
+                    fig_cust_cum.update_layout(title=f"'{sel_cust}' 누적 사용량 ({sel_quarter[:2]})", yaxis_title=f"판매량({unit_str})", margin=dict(t=50, b=10, l=10, r=10), height=350)
                     st.plotly_chart(fig_cust_cum, use_container_width=True)
                 with cc2:
                     fig_cust_mon = go.Figure()
@@ -1123,6 +1130,7 @@ def render_attachment_report(usage_label, section_num, key_sfx):
                     fig_cust_mon.update_layout(
                         title=f"'{sel_cust}' 월별 사용량 추이", barmode='group',
                         xaxis=dict(tickmode='linear', tick0=1, dtick=1),
+                        xaxis_title="월", yaxis_title=f"판매량({unit_str})",
                         margin=dict(t=50, b=10, l=10, r=10), height=350,
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
