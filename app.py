@@ -276,6 +276,43 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
     st.plotly_chart(fig, use_container_width=False)
 
 # ─────────────────────────────────────────────────────────
+# ★ 공통 헬퍼: 스택바 차트에 전체합계 꺾은선 추가
+# ─────────────────────────────────────────────────────────
+def add_total_line_to_stack(fig, years_list, pivot_df, unit_str):
+    """스택바 figure에 전체 합계 꺾은선을 yaxis2로 추가한다."""
+    years_str = [str(y) for y in years_list]
+    totals = [pivot_df.loc[y, "합계"] if y in pivot_df.index else 0 for y in years_list]
+
+    fig.add_trace(go.Scatter(
+        x=years_str,
+        y=totals,
+        mode="lines+markers+text",
+        name="전체 합계",
+        yaxis="y2",
+        line=dict(color="rgba(255, 180, 0, 0.75)", width=2.5, dash="solid"),
+        marker=dict(size=8, color="rgba(255, 180, 0, 0.85)", symbol="circle"),
+        text=[f"<b>{v:,.0f}</b>" for v in totals],
+        textposition="top center",
+        textfont=dict(size=11, color="rgba(200, 130, 0, 1)"),
+        showlegend=True,
+    ))
+
+    # yaxis2를 yaxis와 동일 범위로 오버레이 (눈금 숨김)
+    max_val = max(totals) if totals else 1
+    fig.update_layout(
+        yaxis2=dict(
+            overlaying="y",
+            side="right",
+            range=[0, max_val * 1.25],
+            showgrid=False,
+            showticklabels=False,
+            showline=False,
+        )
+    )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────
 # 메인 레이아웃 (사이드바)
 # ─────────────────────────────────────────────────────────
 st.title("📊 판매량 분석 보고서")
@@ -331,7 +368,6 @@ with st.sidebar:
             csv_info = f"레포 경로에 {DEFAULT_CSV} 파일이 없습니다."
     st.caption(csv_info)
 
-    # ── ✅ 핵심 수정: 단위 선택을 사이드바 라디오로 변경 ──
     st.markdown("---")
     st.subheader("3. 단위 선택")
     unit_choice = st.radio("단위", ["열량 기준 (GJ)", "부피 기준 (천m³)"], index=0, key="unit_radio")
@@ -437,8 +473,6 @@ if not df_csv.empty:
 
 comments_db = load_comments_db()
 
-# ── ✅ 핵심 수정: tabs 제거 → 선택된 단위 하나만 렌더링 ──
-# 단위 선택에 따라 변수 세팅
 if unit_choice == "열량 기준 (GJ)":
     df_long_rpt = long_dict_rpt.get("열량", pd.DataFrame())
     unit_str = "GJ"
@@ -450,11 +484,8 @@ else:
     val_col = "사용량(m3)"
     key_sfx = "_vol"
 
-# 현재 선택 단위 표시
 st.markdown(f"**📐 현재 단위: {unit_str}**")
 st.markdown("<hr style='margin: 4px 0 16px 0;'>", unsafe_allow_html=True)
-
-# ── 이하 본문 렌더링 (단위별 분기 없이 단일 실행) ──
 
 years_available = [2024, 2025, 2026]
 default_y_index = len(years_available) - 1
@@ -595,9 +626,8 @@ if app_mode == "for summary":
             marker_line_width=0,
         )
 
-        for yr in selected_years:
-            val = stack_pivot_table.loc[yr, "합계"]
-            fig_stack.add_annotation(x=str(yr), y=val, text=f"<b>[{val:,.0f} {unit_str}]</b>", showarrow=False, yshift=20, font=dict(size=16, color="black"))
+        # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+        fig_stack = add_total_line_to_stack(fig_stack, selected_years, stack_pivot_table, unit_str)
 
         st.plotly_chart(fig_stack, use_container_width=True)
 
@@ -788,10 +818,6 @@ if not df_long_rpt.empty:
     with col_d1: render_rate_donut(achieve_rate_plan, COLOR_ACT, "계획대비 달성률")
     with col_d2: render_rate_donut(achieve_rate_prev, COLOR_PREV, "전년대비 증감률")
 
-# ↓↓↓ 아래 4줄 삭제: "분기 핵심 요약 작성" 코멘트 박스 제거 ↓↓↓
-# render_comment_section("📝 분기 핵심 요약 작성", "glance", curr_db, comments_db, 120,
-#                        f"예: {sel_year_rpt}년 {sel_quarter[:2]} 누적 총 판매량은 OO {unit_str}로 계획대비 O% 달성.",
-#                        f"glance_{key_sfx}{mode_suffix}")
 st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
 
 # 전체 판매량 요약
@@ -1122,7 +1148,7 @@ if app_mode == "for Sharing":
         render_attachment_report("산업용", 6, key_sfx)
         render_attachment_report("업무용", 7, key_sfx)
 
-    # ── 8. 연도별 전체 판매량 추이 ──
+    # ── 8. 연도별 전체 판매량 추이 (for Sharing) ──
     st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
     st.markdown("#### 📊 8. 연도별 전체 판매량 추이")
     if not df_long_rpt.empty:
@@ -1180,14 +1206,10 @@ if app_mode == "for Sharing":
             textfont=dict(size=12, color="white"),
             marker_line_width=0,
         )
-        for yr in all_years_sh:
-            val_tot = sh_pivot.loc[yr, "합계"]
-            fig_sh_stack.add_annotation(
-                x=str(yr), y=val_tot,
-                text=f"<b>[{val_tot:,.0f} {unit_str}]</b>",
-                showarrow=False, yshift=20,
-                font=dict(size=16, color="black")
-            )
+
+        # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+        fig_sh_stack = add_total_line_to_stack(fig_sh_stack, all_years_sh, sh_pivot, unit_str)
+
         st.plotly_chart(fig_sh_stack, use_container_width=True)
 
         st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str}) — {sel_quarter[:2]} 누적**")
@@ -1213,7 +1235,6 @@ if app_mode == "for Executive":
     st.markdown("#### 📊 6. 연도별 전체 판매량 추이")
 
 if app_mode == "for Executive" and not df_long_rpt.empty:
-    # 실적 데이터가 1건 이상 있는 연도만 포함 (데이터 없는 미래 연도 제외), 2020년 이상
     actual_by_year = df_long_rpt[df_long_rpt["계획/실적"] == "실적"].groupby("연")["값"].sum()
     all_years_exec = sorted([y for y in actual_by_year[actual_by_year > 0].index.tolist() if y >= 2020])
     df_stack_exec = df_long_rpt[
@@ -1269,14 +1290,10 @@ if app_mode == "for Executive" and not df_long_rpt.empty:
         textfont=dict(size=12, color="white"),
         marker_line_width=0,
     )
-    for yr in all_years_exec:
-        val = exec_pivot.loc[yr, "합계"]
-        fig_exec_stack.add_annotation(
-            x=str(yr), y=val,
-            text=f"<b>[{val:,.0f} {unit_str}]</b>",
-            showarrow=False, yshift=20,
-            font=dict(size=16, color="black")
-        )
+
+    # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+    fig_exec_stack = add_total_line_to_stack(fig_exec_stack, all_years_exec, exec_pivot, unit_str)
+
     st.plotly_chart(fig_exec_stack, use_container_width=True)
 
     st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str}) — {sel_quarter[:2]} 누적**")
