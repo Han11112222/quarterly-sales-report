@@ -279,36 +279,22 @@ def render_rate_donut(rate: float, color: str, title: str = ""):
 # ★ 공통 헬퍼: 스택바 차트에 전체합계 꺾은선 추가
 # ─────────────────────────────────────────────────────────
 def add_total_line_to_stack(fig, years_list, pivot_df, unit_str):
-    """스택바 figure에 전체 합계 꺾은선을 yaxis2로 추가한다."""
+    """스택바 figure에 전체 합계 꺾은선을 동일 y축(y)으로 추가한다.
+    기존 annotation(숫자 표기)은 그대로 유지하며, 꺾은선은 스택 최상단에 정확히 위치한다."""
     years_str = [str(y) for y in years_list]
     totals = [pivot_df.loc[y, "합계"] if y in pivot_df.index else 0 for y in years_list]
 
+    # 동일 y축 사용 → 스택 합계값과 동일 스케일이므로 선이 정확히 상단에 위치
     fig.add_trace(go.Scatter(
         x=years_str,
         y=totals,
-        mode="lines+markers+text",
-        name="전체 합계",
-        yaxis="y2",
-        line=dict(color="rgba(255, 180, 0, 0.75)", width=2.5, dash="solid"),
-        marker=dict(size=8, color="rgba(255, 180, 0, 0.85)", symbol="circle"),
-        text=[f"<b>{v:,.0f}</b>" for v in totals],
-        textposition="top center",
-        textfont=dict(size=11, color="rgba(200, 130, 0, 1)"),
+        mode="lines+markers",   # text 제거 (기존 annotation이 숫자 표시)
+        name="전체 합계 추이",
+        line=dict(color="rgba(255, 160, 0, 0.85)", width=2.5, dash="solid"),
+        marker=dict(size=9, color="rgba(255, 160, 0, 0.95)", symbol="circle",
+                    line=dict(color="white", width=1.5)),
         showlegend=True,
     ))
-
-    # yaxis2를 yaxis와 동일 범위로 오버레이 (눈금 숨김)
-    max_val = max(totals) if totals else 1
-    fig.update_layout(
-        yaxis2=dict(
-            overlaying="y",
-            side="right",
-            range=[0, max_val * 1.25],
-            showgrid=False,
-            showticklabels=False,
-            showline=False,
-        )
-    )
     return fig
 
 
@@ -626,7 +612,12 @@ if app_mode == "for summary":
             marker_line_width=0,
         )
 
-        # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+        # 기존 annotation(총량 숫자) 유지
+        for yr in selected_years:
+            val = stack_pivot_table.loc[yr, "합계"]
+            fig_stack.add_annotation(x=str(yr), y=val, text=f"<b>[{val:,.0f} {unit_str}]</b>", showarrow=False, yshift=20, font=dict(size=16, color="black"))
+
+        # ★ 꺾은선 추가 (동일 y축 → 스택 최상단에 정확히 위치)
         fig_stack = add_total_line_to_stack(fig_stack, selected_years, stack_pivot_table, unit_str)
 
         st.plotly_chart(fig_stack, use_container_width=True)
@@ -1207,7 +1198,12 @@ if app_mode == "for Sharing":
             marker_line_width=0,
         )
 
-        # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+        # 기존 annotation(총량 숫자) 유지
+        for yr in all_years_sh:
+            val_tot = sh_pivot.loc[yr, "합계"]
+            fig_sh_stack.add_annotation(x=str(yr), y=val_tot, text=f"<b>[{val_tot:,.0f} {unit_str}]</b>", showarrow=False, yshift=20, font=dict(size=16, color="black"))
+
+        # ★ 꺾은선 추가 (동일 y축 → 스택 최상단에 정확히 위치)
         fig_sh_stack = add_total_line_to_stack(fig_sh_stack, all_years_sh, sh_pivot, unit_str)
 
         st.plotly_chart(fig_sh_stack, use_container_width=True)
@@ -1291,7 +1287,12 @@ if app_mode == "for Executive" and not df_long_rpt.empty:
         marker_line_width=0,
     )
 
-    # ★ 수정: 상단 합계 annotation 제거 후 꺾은선으로 대체
+    # 기존 annotation(총량 숫자) 유지
+    for yr in all_years_exec:
+        val = exec_pivot.loc[yr, "합계"]
+        fig_exec_stack.add_annotation(x=str(yr), y=val, text=f"<b>[{val:,.0f} {unit_str}]</b>", showarrow=False, yshift=20, font=dict(size=16, color="black"))
+
+    # ★ 꺾은선 추가 (동일 y축 → 스택 최상단에 정확히 위치)
     fig_exec_stack = add_total_line_to_stack(fig_exec_stack, all_years_exec, exec_pivot, unit_str)
 
     st.plotly_chart(fig_exec_stack, use_container_width=True)
