@@ -370,6 +370,15 @@ if app_mode == "for Sharing":
     else:
         st.success("🔓 인증되었습니다. 공유용 화면을 표시합니다.")
 
+if app_mode == "for summary":
+    st.info("🔒 'for summary' 모드입니다. 내용을 확인하려면 비밀번호를 입력해주세요.")
+    summary_pw = st.text_input("접근 비밀번호 (PW)", type="password", key="summary_pw_input")
+    if summary_pw != "1234":
+        if summary_pw != "": st.error("❌ 비밀번호가 일치하지 않습니다.")
+        st.stop()
+    else:
+        st.success("🔓 인증되었습니다. 요약 화면을 표시합니다.")
+
 import random
 _loading_msgs = [
     ("⛽", "도시가스 배관을 점검하는 중입니다", "잠시만 기다려 주세요!"),
@@ -535,13 +544,6 @@ st.markdown("<hr style='margin: 10px 0 30px 0;'>", unsafe_allow_html=True)
 # for summary 모드
 # ─────────────────────────────────────────────────────────
 if app_mode == "for summary":
-    st.info("🔒 'for summary' 모드입니다. 내용을 확인하려면 비밀번호를 입력해주세요.")
-    summary_pw = st.text_input("접근 비밀번호 (PW)", type="password", key="summary_pw_input")
-    if summary_pw != "1234":
-        if summary_pw != "": st.error("❌ 비밀번호가 일치하지 않습니다.")
-        st.stop()
-    else:
-        st.success("🔓 인증되었습니다. 요약 화면을 표시합니다.")
     st.markdown(f"### 🏢 요약 대시보드 (for summary)")
 
     available_years_rpt = df_long_rpt["연"].dropna().unique().tolist() if not df_long_rpt.empty else []
