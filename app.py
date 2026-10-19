@@ -4,7 +4,9 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote
 
+import requests
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -31,6 +33,25 @@ st.set_page_config(page_title="도시가스 판매량 분석 보고서", layout=
 
 DEFAULT_SALES_XLSX = "판매량(계획_실적).xlsx"
 DEFAULT_CSV = "가정용외_202601.csv"
+
+# ─────────────────────────────────────────────────────────
+# 구글 스프레드시트 연결 설정
+#  - "id"   : 스프레드시트 주소의 /d/ 와 /edit 사이 문자열
+#  - "tabs" : 시트(탭) 지정. gid 숫자("0") 또는 탭 이름("계획_부피") 모두 가능
+#             비워두면("") 해당 시트는 레포의 엑셀 파일에서 대신 읽습니다.
+#  ※ 두 스프레드시트 모두 '링크가 있는 모든 사용자 - 뷰어' 공유가 되어 있어야 합니다.
+# ─────────────────────────────────────────────────────────
+GSHEET_CONFIG: Dict[str, Dict] = {
+    "계획": {
+        "id": "1zu2R21_P6z6yCeWz7yX1K6IYhj541hcr3IvCAaHLEQ8",
+        "tabs": {"열량": "0", "부피": ""},   # TODO: 부피 탭의 gid(또는 탭 이름)를 입력
+    },
+    "실적": {
+        "id": "1-8RIPIkjnVXxoh5QJs6598nnHkWOGmrO655jr3b3g04",
+        "tabs": {"열량": "0", "부피": ""},   # TODO: 부피 탭의 gid(또는 탭 이름)를 입력
+    },
+}
+GSHEET_CACHE_TTL = 300  # 초 (5분마다 최신 데이터 재조회)
 
 # ─────────────────────────────────────────────────────────
 # 코멘트 DB 저장/불러오기
@@ -238,6 +259,108 @@ def load_all_sheets(excel_bytes: bytes) -> Dict[str, pd.DataFrame]:
             out[name] = xls.parse(name)
     return out
 
+# ── 구글 스프레드시트 로더 ────────────────────────────────
+def _gviz_url(sheet_id: str, tab: str, fmt: str) -> str:
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:{fmt}&headers=1"
+    tab = str(tab).strip()
+    return url + (f"&gid={tab}" if tab.isdigit() else f"&sheet={quote(tab)}")
+
+def _to_num(v):
+    """숫자는 그대로, 문자열("1,234" / "-" / "(12)")은 정리해서 float 변환. 빈 값은 NaN."""
+    if v is None: return np.nan
+    if isinstance(v, bool): return np.nan
+    if isinstance(v, (int, float, np.integer, np.floating)): return float(v)
+    if isinstance(v, str) and not v.strip(): return np.nan
+    return clean_korean_finance_number(v)
+
+def _finalize_gsheet_df(df: pd.DataFrame) -> pd.DataFrame:
+    """헤더 정리(빈 헤더/중복 헤더 처리) + 숫자 변환. 엑셀 xls.parse() 결과와 같은 형태로 맞춘다."""
+    df = df.copy()
+    # 헤더가 데이터 첫 행으로 밀려 들어온 경우 보정
+    if "연" not in [str(c).strip() for c in df.columns] and len(df) > 0:
+        first = [str(x).strip() for x in df.iloc[0].tolist()]
+        if "연" in first:
+            df.columns = first
+            df = df.iloc[1:].reset_index(drop=True)
+
+    names, seen = [], {}
+    for i, c in enumerate(df.columns):
+        n = str(c).strip()
+        if n == "" or n.lower() == "nan" or n.startswith("Unnamed"): n = f"Unnamed: {i}"
+        if n in seen:
+            seen[n] += 1
+            n = f"{n}.{seen[n]}"
+        else:
+            seen[n] = 0
+        names.append(n)
+    df.columns = names
+
+    for c in df.columns:
+        if str(c).startswith("Unnamed"): continue      # 날짜/빈 열은 변환하지 않음 (_clean_base에서 제거)
+        df[c] = df[c].map(_to_num)
+    df = df.dropna(how="all").reset_index(drop=True)
+    return df
+
+def _parse_gviz_json(text: str) -> pd.DataFrame:
+    m = re.search(r"setResponse\((.*)\)\s*;?\s*$", text.strip(), re.S)
+    if not m: raise ValueError("구글시트 응답 형식을 해석할 수 없습니다. (공유 설정 또는 탭 지정을 확인하세요)")
+    payload = json.loads(m.group(1))
+    if payload.get("status") == "error":
+        msg = "; ".join(e.get("detailed_message") or e.get("message", "") for e in payload.get("errors", []))
+        raise ValueError(f"구글시트 오류: {msg}")
+    table = payload["table"]
+    cols = [(c.get("label") or "") for c in table["cols"]]
+    n = len(cols)
+    rows = []
+    for r in table["rows"]:
+        cells = [(cell or {}).get("v") for cell in r.get("c", [])]
+        rows.append((cells + [None] * n)[:n])
+    return pd.DataFrame(rows, columns=cols)
+
+@st.cache_data(ttl=GSHEET_CACHE_TTL, show_spinner=False)
+def fetch_gsheet_tab(sheet_id: str, tab: str) -> pd.DataFrame:
+    """구글시트 1개 탭을 DataFrame으로 읽는다. 원본(raw) 숫자를 쓰므로 표시 서식(반올림)의 영향이 없다.
+    JSON 방식이 실패하면 CSV 방식으로 한 번 더 시도한다."""
+    last_err = None
+    try:
+        r = requests.get(_gviz_url(sheet_id, tab, "json"), timeout=30)
+        r.raise_for_status()
+        df = _parse_gviz_json(r.content.decode("utf-8"))
+        return _finalize_gsheet_df(df)
+    except Exception as e:
+        last_err = e
+    try:
+        r = requests.get(_gviz_url(sheet_id, tab, "csv"), timeout=30)
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.content.decode("utf-8-sig")), dtype=str, keep_default_na=False)
+        return _finalize_gsheet_df(df)
+    except Exception as e:
+        raise RuntimeError(f"{last_err} / {e}")
+
+def load_sheets_from_gsheets(fallback_bytes: Optional[bytes]) -> Tuple[Dict[str, pd.DataFrame], List[str]]:
+    """계획/실적 × 부피/열량 4개 시트를 구글시트에서 읽는다.
+    탭이 비어 있거나 읽기에 실패하면 레포 엑셀의 같은 시트로 대체하고, 그 내역을 notes로 돌려준다."""
+    fb = load_all_sheets(fallback_bytes) if fallback_bytes else {}
+    out: Dict[str, pd.DataFrame] = {}
+    notes: List[str] = []
+    for kind in ["계획", "실적"]:
+        cfg = GSHEET_CONFIG[kind]
+        for unit in ["부피", "열량"]:
+            name = f"{kind}_{unit}"
+            tab = str(cfg["tabs"].get(unit, "") or "").strip()
+            if tab:
+                try:
+                    out[name] = fetch_gsheet_tab(cfg["id"], tab)
+                    notes.append(f"✅ {name}: 구글시트 (탭 {tab})")
+                    continue
+                except Exception as e:
+                    notes.append(f"⚠️ {name}: 구글시트 읽기 실패 → 엑셀로 대체 ({str(e)[:80]})")
+            else:
+                notes.append(f"ℹ️ {name}: 구글시트 탭 미설정 → 엑셀 사용")
+            if name in fb:
+                out[name] = fb[name]
+    return out, notes
+
 def build_long_dict(sheets: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
     long_dict: Dict[str, pd.DataFrame] = {}
     if ("계획_부피" in sheets) and ("실적_부피" in sheets):
@@ -310,10 +433,16 @@ with st.sidebar:
 
     st.header("📂 데이터 불러오기")
     st.subheader("1. 판매량 데이터 (필수)")
-    src_sales = st.radio("판매량 데이터 소스", ["레포 파일 사용", "엑셀 업로드(.xlsx)"], index=0, key="rpt_sales_src")
+    SRC_GSHEET = "구글 스프레드시트"
+    src_sales = st.radio("판매량 데이터 소스", [SRC_GSHEET, "레포 파일 사용", "엑셀 업로드(.xlsx)"], index=0, key="rpt_sales_src")
     excel_bytes = None
     rpt_base_info = ""
-    if src_sales == "엑셀 업로드(.xlsx)":
+    if src_sales == SRC_GSHEET:
+        rpt_base_info = f"소스: 구글 스프레드시트 ({GSHEET_CACHE_TTL // 60}분 캐시)"
+        if st.button("🔄 구글시트 새로고침", key="gs_refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    elif src_sales == "엑셀 업로드(.xlsx)":
         up_sales = st.file_uploader("판매량(계획_실적).xlsx 형식", type=["xlsx"], key="rpt_sales_uploader")
         if up_sales is not None:
             excel_bytes = up_sales.getvalue()
@@ -434,7 +563,19 @@ def show_loading_banner(icon, title, subtitle):
     return placeholder
 
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
-if 'excel_bytes' in locals() and excel_bytes is not None:
+if src_sales == SRC_GSHEET:
+    _ic, _tt, _st = random.choice(_loading_msgs)
+    _ph = show_loading_banner(_ic, _tt, _st)
+    _repo_xlsx = Path(__file__).parent / DEFAULT_SALES_XLSX
+    _fallback = _repo_xlsx.read_bytes() if _repo_xlsx.exists() else None
+    sheets_rpt, _gs_notes = load_sheets_from_gsheets(_fallback)
+    long_dict_rpt = build_long_dict(sheets_rpt)
+    _ph.empty()
+    with st.sidebar:
+        with st.expander("📋 데이터 소스 상태", expanded=any(n.startswith(("⚠️", "ℹ️")) for n in _gs_notes)):
+            for _n in _gs_notes:
+                st.caption(_n)
+elif 'excel_bytes' in locals() and excel_bytes is not None:
     _ic, _tt, _st = random.choice(_loading_msgs)
     _ph = show_loading_banner(_ic, _tt, _st)
     sheets_rpt = load_all_sheets(excel_bytes)
