@@ -625,18 +625,22 @@ st.markdown("<hr style='margin: 4px 0 16px 0;'>", unsafe_allow_html=True)
 
 years_available = [2024, 2025, 2026]
 default_y_index = len(years_available) - 1
-default_q_index = 3
+ALL_QUARTERS = ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"]
+
+def complete_quarters_of(df_long: pd.DataFrame, year: int) -> List[int]:
+    """해당 연도에 실적이 3개월 모두 입력된 분기 번호(1~4) 목록.
+    실적이 전혀 없는 연도(계획만 있는 연도)는 빈 리스트를 돌려준다."""
+    if df_long.empty: return []
+    act = df_long[(df_long["계획/실적"] == "실적") & (df_long["연"] == year)]
+    done_months = set(act.groupby("월")["값"].sum().loc[lambda x: x > 0].index.tolist())
+    return [q for q in (1, 2, 3, 4) if all(m in done_months for m in range(3 * q - 2, 3 * q + 1))]
 
 if not df_long_rpt.empty:
     years_available = sorted(df_long_rpt["연"].unique().tolist())
     actual_data = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["값"] > 0)]
     if not actual_data.empty:
         max_year = actual_data["연"].max()
-        max_month = actual_data[actual_data["연"] == max_year]["월"].max()
         default_y_index = years_available.index(max_year) if max_year in years_available else len(years_available) - 1
-        default_q_index = int((max_month - 1) // 3)
-        if default_q_index < 0: default_q_index = 0
-        if default_q_index > 3: default_q_index = 3
 
 df_csv_tab = df_csv.copy()
 
@@ -667,7 +671,10 @@ if not df_csv_tab.empty:
 if app_mode != "for summary":
     c_y, c_q, c_empty = st.columns([1, 1, 2])
     with c_y: sel_year_rpt = st.selectbox("기준 연도", years_available, index=default_y_index, key=f"rpt_yr{key_sfx}")
-    with c_q: sel_quarter = st.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
+    # 실적이 분기 3개월 모두 입력된 분기만 선택지에 노출 (예: 7~8월까지만 입력 → 2Q까지)
+    _done_q = complete_quarters_of(df_long_rpt, int(sel_year_rpt))
+    _q_options = [ALL_QUARTERS[q - 1] for q in _done_q] if _done_q else ALL_QUARTERS
+    with c_q: sel_quarter = st.selectbox("기준 분기", _q_options, index=len(_q_options) - 1, key=f"rpt_qt{key_sfx}")
     max_month = int(sel_quarter[0]) * 3
 else:
     sel_year_rpt = years_available[-1] if years_available else 2025
