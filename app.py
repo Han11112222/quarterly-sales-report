@@ -4,7 +4,9 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote
 
+import requests
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -33,13 +35,35 @@ DEFAULT_SALES_XLSX = "판매량(계획_실적).xlsx"
 DEFAULT_CSV = "가정용외_202601.csv"
 
 # ─────────────────────────────────────────────────────────
+# 구글 스프레드시트 연결 설정
+#  - "id"   : 스프레드시트 주소의 /d/ 와 /edit 사이 문자열
+#  - "tabs" : 시트(탭) 지정. gid 숫자("0") 또는 탭 이름("계획_부피") 모두 가능
+#             비워두면("") 해당 시트는 레포의 엑셀 파일에서 대신 읽습니다.
+#  ※ 두 스프레드시트 모두 '링크가 있는 모든 사용자 - 뷰어' 공유가 되어 있어야 합니다.
+# ─────────────────────────────────────────────────────────
+GSHEET_CONFIG: Dict[str, Dict] = {
+    "계획": {
+        "id": "1zu2R21_P6z6yCeWz7yX1K6IYhj541hcr3IvCAaHLEQ8",
+        "tabs": {"열량": "0", "부피": ""},   # TODO: 부피 탭의 gid(또는 탭 이름)를 입력
+    },
+    "실적": {
+        "id": "1-8RIPIkjnVXxoh5QJs6598nnHkWOGmrO655jr3b3g04",
+        "tabs": {"열량": "0", "부피": ""},   # TODO: 부피 탭의 gid(또는 탭 이름)를 입력
+    },
+}
+GSHEET_CACHE_TTL = 300  # 초 (5분마다 최신 데이터 재조회)
+
+# ─────────────────────────────────────────────────────────
 # 코멘트 DB 저장/불러오기
 # ─────────────────────────────────────────────────────────
 COMMENT_DB_FILE = "report_comments_db.json"
 REPO_NAME = "Han11112222/quarterly-sales-report"
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_comments_db():
+    """코멘트 DB 조회. 화면이 다시 그려질 때마다 GitHub를 호출하지 않도록 60초 캐시한다.
+    (저장 시 save_comments_db 에서 캐시를 비우므로 저장 직후에는 최신 내용이 보인다.)"""
     try:
         if "GITHUB_TOKEN" in st.secrets:
             token = st.secrets["GITHUB_TOKEN"]
@@ -72,7 +96,18 @@ def save_comments_db(db_data):
     except Exception as e:
         st.warning(f"⚠️ 로컬 저장 실패: {e}")
 
-    if "GITHUB_TOKEN" not in st.secrets:
+    # 저장 직후에는 최신 내용을 다시 읽도록 캐시를 비운다
+    try:
+        load_comments_db.clear()
+    except Exception:
+        pass
+
+    try:
+        has_token = "GITHUB_TOKEN" in st.secrets
+    except Exception:
+        has_token = False
+
+    if not has_token:
         st.warning("⚠️ GITHUB_TOKEN이 설정되지 않아 영구 저장이 불가합니다. Streamlit Secrets에 추가하세요.")
         return
 
@@ -170,6 +205,64 @@ def clean_korean_finance_number(val):
     try: return float(s)
     except: return 0.0
 
+def clean_numeric_series(ser: pd.Series) -> pd.Series:
+    """clean_korean_finance_number 의 벡터화 버전. 행 단위 apply 보다 훨씬 빠르고 메모리를 적게 쓴다."""
+    s = ser.astype(str).str.replace(",", "", regex=False).str.strip()
+    neg_paren = s.str.startswith("(") & s.str.endswith(")")
+    neg_trail = s.str.endswith("-") & (s.str.len() > 1)
+    s = s.where(~neg_paren, "-" + s.str[1:-1])
+    s = s.where(~neg_trail, "-" + s.str[:-1])
+    s = s.str.replace(r"[^\d\.-]", "", regex=True)
+    return pd.to_numeric(s, errors="coerce").fillna(0.0)
+
+def clean_usage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    for c in ["사용량(mj)", "사용량(m3)"]:
+        if c in df.columns:
+            df[c] = clean_numeric_series(df[c])
+    return df
+
+def add_date_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """청구년월 등 날짜 컬럼을 해석해 '연_csv', '월_csv' 컬럼을 만든다. (임시 날짜 컬럼은 남기지 않음)"""
+    if df.empty:
+        return df
+    parsed = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    date_col = None
+    for c in ["청구년월", "매출년월", "년월", "기준년월"]:
+        if c in df.columns:
+            date_col = c
+            break
+    if date_col:
+        m1 = parsed.isna()
+        parsed.loc[m1] = pd.to_datetime(df.loc[m1, date_col], format="%b-%y", errors="coerce")
+        m2 = parsed.isna()
+        if m2.any(): parsed.loc[m2] = pd.to_datetime(df.loc[m2, date_col], format="%Y%m", errors="coerce")
+        m3 = parsed.isna()
+        if m3.any(): parsed.loc[m3] = pd.to_datetime(df.loc[m3, date_col], errors="coerce")
+    df["연_csv"] = parsed.dt.year
+    df["월_csv"] = parsed.dt.month
+    return df
+
+@st.cache_data(show_spinner=False)
+def load_repo_csvs(base_dir: str) -> pd.DataFrame:
+    """레포의 '가정용외' CSV 전체를 읽어 병합하고 숫자 정리까지 끝낸 결과를 캐시한다.
+    (화면이 다시 그려질 때마다 CSV를 새로 읽지 않으므로 메모리/속도가 크게 개선된다.)"""
+    repo_dir = Path(base_dir)
+    paths = sorted(set(list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))))
+    frames = []
+    for p in paths:
+        try:
+            frames.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
+        except Exception:
+            try:
+                frames.append(pd.read_csv(p, encoding="cp949", thousands=','))
+            except Exception:
+                pass
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    del frames
+    return add_date_cols(clean_usage_columns(df))
+
 def fmt_num_safe(v) -> str:
     if pd.isna(v): return "-"
     try: return f"{float(v):,.0f}"
@@ -237,6 +330,108 @@ def load_all_sheets(excel_bytes: bytes) -> Dict[str, pd.DataFrame]:
         if name in xls.sheet_names:
             out[name] = xls.parse(name)
     return out
+
+# ── 구글 스프레드시트 로더 ────────────────────────────────
+def _gviz_url(sheet_id: str, tab: str, fmt: str) -> str:
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:{fmt}&headers=1"
+    tab = str(tab).strip()
+    return url + (f"&gid={tab}" if tab.isdigit() else f"&sheet={quote(tab)}")
+
+def _to_num(v):
+    """숫자는 그대로, 문자열("1,234" / "-" / "(12)")은 정리해서 float 변환. 빈 값은 NaN."""
+    if v is None: return np.nan
+    if isinstance(v, bool): return np.nan
+    if isinstance(v, (int, float, np.integer, np.floating)): return float(v)
+    if isinstance(v, str) and not v.strip(): return np.nan
+    return clean_korean_finance_number(v)
+
+def _finalize_gsheet_df(df: pd.DataFrame) -> pd.DataFrame:
+    """헤더 정리(빈 헤더/중복 헤더 처리) + 숫자 변환. 엑셀 xls.parse() 결과와 같은 형태로 맞춘다."""
+    df = df.copy()
+    # 헤더가 데이터 첫 행으로 밀려 들어온 경우 보정
+    if "연" not in [str(c).strip() for c in df.columns] and len(df) > 0:
+        first = [str(x).strip() for x in df.iloc[0].tolist()]
+        if "연" in first:
+            df.columns = first
+            df = df.iloc[1:].reset_index(drop=True)
+
+    names, seen = [], {}
+    for i, c in enumerate(df.columns):
+        n = str(c).strip()
+        if n == "" or n.lower() == "nan" or n.startswith("Unnamed"): n = f"Unnamed: {i}"
+        if n in seen:
+            seen[n] += 1
+            n = f"{n}.{seen[n]}"
+        else:
+            seen[n] = 0
+        names.append(n)
+    df.columns = names
+
+    for c in df.columns:
+        if str(c).startswith("Unnamed"): continue      # 날짜/빈 열은 변환하지 않음 (_clean_base에서 제거)
+        df[c] = df[c].map(_to_num)
+    df = df.dropna(how="all").reset_index(drop=True)
+    return df
+
+def _parse_gviz_json(text: str) -> pd.DataFrame:
+    m = re.search(r"setResponse\((.*)\)\s*;?\s*$", text.strip(), re.S)
+    if not m: raise ValueError("구글시트 응답 형식을 해석할 수 없습니다. (공유 설정 또는 탭 지정을 확인하세요)")
+    payload = json.loads(m.group(1))
+    if payload.get("status") == "error":
+        msg = "; ".join(e.get("detailed_message") or e.get("message", "") for e in payload.get("errors", []))
+        raise ValueError(f"구글시트 오류: {msg}")
+    table = payload["table"]
+    cols = [(c.get("label") or "") for c in table["cols"]]
+    n = len(cols)
+    rows = []
+    for r in table["rows"]:
+        cells = [(cell or {}).get("v") for cell in r.get("c", [])]
+        rows.append((cells + [None] * n)[:n])
+    return pd.DataFrame(rows, columns=cols)
+
+@st.cache_data(ttl=GSHEET_CACHE_TTL, show_spinner=False)
+def fetch_gsheet_tab(sheet_id: str, tab: str) -> pd.DataFrame:
+    """구글시트 1개 탭을 DataFrame으로 읽는다. 원본(raw) 숫자를 쓰므로 표시 서식(반올림)의 영향이 없다.
+    JSON 방식이 실패하면 CSV 방식으로 한 번 더 시도한다."""
+    last_err = None
+    try:
+        r = requests.get(_gviz_url(sheet_id, tab, "json"), timeout=30)
+        r.raise_for_status()
+        df = _parse_gviz_json(r.content.decode("utf-8"))
+        return _finalize_gsheet_df(df)
+    except Exception as e:
+        last_err = e
+    try:
+        r = requests.get(_gviz_url(sheet_id, tab, "csv"), timeout=30)
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.content.decode("utf-8-sig")), dtype=str, keep_default_na=False)
+        return _finalize_gsheet_df(df)
+    except Exception as e:
+        raise RuntimeError(f"{last_err} / {e}")
+
+def load_sheets_from_gsheets(fallback_bytes: Optional[bytes]) -> Tuple[Dict[str, pd.DataFrame], List[str]]:
+    """계획/실적 × 부피/열량 4개 시트를 구글시트에서 읽는다.
+    탭이 비어 있거나 읽기에 실패하면 레포 엑셀의 같은 시트로 대체하고, 그 내역을 notes로 돌려준다."""
+    fb = load_all_sheets(fallback_bytes) if fallback_bytes else {}
+    out: Dict[str, pd.DataFrame] = {}
+    notes: List[str] = []
+    for kind in ["계획", "실적"]:
+        cfg = GSHEET_CONFIG[kind]
+        for unit in ["부피", "열량"]:
+            name = f"{kind}_{unit}"
+            tab = str(cfg["tabs"].get(unit, "") or "").strip()
+            if tab:
+                try:
+                    out[name] = fetch_gsheet_tab(cfg["id"], tab)
+                    notes.append(f"✅ {name}: 구글시트 (탭 {tab})")
+                    continue
+                except Exception as e:
+                    notes.append(f"⚠️ {name}: 구글시트 읽기 실패 → 엑셀로 대체 ({str(e)[:80]})")
+            else:
+                notes.append(f"ℹ️ {name}: 구글시트 탭 미설정 → 엑셀 사용")
+            if name in fb:
+                out[name] = fb[name]
+    return out, notes
 
 def build_long_dict(sheets: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
     long_dict: Dict[str, pd.DataFrame] = {}
@@ -310,10 +505,16 @@ with st.sidebar:
 
     st.header("📂 데이터 불러오기")
     st.subheader("1. 판매량 데이터 (필수)")
-    src_sales = st.radio("판매량 데이터 소스", ["레포 파일 사용", "엑셀 업로드(.xlsx)"], index=0, key="rpt_sales_src")
+    SRC_GSHEET = "구글 스프레드시트"
+    src_sales = st.radio("판매량 데이터 소스", [SRC_GSHEET, "레포 파일 사용", "엑셀 업로드(.xlsx)"], index=0, key="rpt_sales_src")
     excel_bytes = None
     rpt_base_info = ""
-    if src_sales == "엑셀 업로드(.xlsx)":
+    if src_sales == SRC_GSHEET:
+        rpt_base_info = f"소스: 구글 스프레드시트 ({GSHEET_CACHE_TTL // 60}분 캐시)"
+        if st.button("🔄 구글시트 새로고침", key="gs_refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    elif src_sales == "엑셀 업로드(.xlsx)":
         up_sales = st.file_uploader("판매량(계획_실적).xlsx 형식", type=["xlsx"], key="rpt_sales_uploader")
         if up_sales is not None:
             excel_bytes = up_sales.getvalue()
@@ -342,7 +543,7 @@ with st.sidebar:
                     try: df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="cp949", thousands=','))
                     except: pass
             if df_list:
-                st.session_state['merged_csv_df'] = pd.concat(df_list, ignore_index=True)
+                st.session_state['merged_csv_df'] = add_date_cols(clean_usage_columns(pd.concat(df_list, ignore_index=True)))
             csv_info = f"소스: 업로드 파일 {len(up_csvs)}개 병합 완료"
         else:
             if 'merged_csv_df' in st.session_state: del st.session_state['merged_csv_df']
@@ -434,37 +635,32 @@ def show_loading_banner(icon, title, subtitle):
     return placeholder
 
 long_dict_rpt: Dict[str, pd.DataFrame] = {}
-if 'excel_bytes' in locals() and excel_bytes is not None:
+if src_sales == SRC_GSHEET:
+    _ic, _tt, _st = random.choice(_loading_msgs)
+    _ph = show_loading_banner(_ic, _tt, _st)
+    _repo_xlsx = Path(__file__).parent / DEFAULT_SALES_XLSX
+    _fallback = _repo_xlsx.read_bytes() if _repo_xlsx.exists() else None
+    sheets_rpt, _gs_notes = load_sheets_from_gsheets(_fallback)
+    long_dict_rpt = build_long_dict(sheets_rpt)
+    _ph.empty()
+    with st.sidebar:
+        with st.expander("📋 데이터 소스 상태", expanded=any(n.startswith(("⚠️", "ℹ️")) for n in _gs_notes)):
+            for _n in _gs_notes:
+                st.caption(_n)
+elif 'excel_bytes' in locals() and excel_bytes is not None:
     _ic, _tt, _st = random.choice(_loading_msgs)
     _ph = show_loading_banner(_ic, _tt, _st)
     sheets_rpt = load_all_sheets(excel_bytes)
     long_dict_rpt = build_long_dict(sheets_rpt)
     _ph.empty()
 
+# ── 업종별 CSV 로딩 (캐시 사용: 화면이 다시 그려져도 CSV를 재조회하지 않음) ──
 df_csv = pd.DataFrame()
 if src_csv == "레포 파일 사용":
-    repo_dir = Path(__file__).parent
-    all_csvs = list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))
-    all_csvs = list(set(all_csvs))
-    if all_csvs:
-        _ph2 = show_loading_banner("📂", "업종별 상세 데이터를 스캔하는 중입니다", "파일이 많을수록 더 풍성한 분석이 가능합니다 📁")
-        csv_list = []
-        for p in all_csvs:
-            try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
-            except:
-                try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
-                except: pass
-        if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
-        _ph2.empty()
+    df_csv = load_repo_csvs(str(Path(__file__).parent))
 
 if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
-
-if not df_csv.empty:
-    _ph3 = show_loading_banner("🧹", "데이터를 깔끔하게 다듬는 중입니다", "숫자 하나하나 꼼꼼히 확인하고 있어요")
-    if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
-    if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
-    _ph3.empty()
 
 comments_db = load_comments_db()
 
@@ -484,20 +680,25 @@ st.markdown("<hr style='margin: 4px 0 16px 0;'>", unsafe_allow_html=True)
 
 years_available = [2024, 2025, 2026]
 default_y_index = len(years_available) - 1
-default_q_index = 3
+ALL_QUARTERS = ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"]
+
+def complete_quarters_of(df_long: pd.DataFrame, year: int) -> List[int]:
+    """해당 연도에 실적이 3개월 모두 입력된 분기 번호(1~4) 목록.
+    실적이 전혀 없는 연도(계획만 있는 연도)는 빈 리스트를 돌려준다."""
+    if df_long.empty: return []
+    act = df_long[(df_long["계획/실적"] == "실적") & (df_long["연"] == year)]
+    done_months = set(act.groupby("월")["값"].sum().loc[lambda x: x > 0].index.tolist())
+    return [q for q in (1, 2, 3, 4) if all(m in done_months for m in range(3 * q - 2, 3 * q + 1))]
 
 if not df_long_rpt.empty:
     years_available = sorted(df_long_rpt["연"].unique().tolist())
     actual_data = df_long_rpt[(df_long_rpt["계획/실적"] == "실적") & (df_long_rpt["값"] > 0)]
     if not actual_data.empty:
         max_year = actual_data["연"].max()
-        max_month = actual_data[actual_data["연"] == max_year]["월"].max()
         default_y_index = years_available.index(max_year) if max_year in years_available else len(years_available) - 1
-        default_q_index = int((max_month - 1) // 3)
-        if default_q_index < 0: default_q_index = 0
-        if default_q_index > 3: default_q_index = 3
 
-df_csv_tab = df_csv.copy()
+# df_csv 는 이미 복사본(캐시/세션 복사)이므로 추가 .copy() 없이 그대로 사용 (메모리 절감)
+df_csv_tab = df_csv
 
 if not df_csv_tab.empty:
     if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
@@ -505,28 +706,17 @@ if not df_csv_tab.empty:
     elif unit_str == "천m³" and "사용량(m3)" in df_csv_tab.columns:
         df_csv_tab["사용량(m3)"] = df_csv_tab["사용량(m3)"] / 1000.0
 
-    df_csv_tab["날짜_파싱"] = pd.NaT
-    date_col = None
-    for c in ["청구년월", "매출년월", "년월", "기준년월"]:
-        if c in df_csv_tab.columns:
-            date_col = c
-            break
-
-    if date_col:
-        mask1 = df_csv_tab["날짜_파싱"].isna()
-        df_csv_tab.loc[mask1, "날짜_파싱"] = pd.to_datetime(df_csv_tab.loc[mask1, date_col], format="%b-%y", errors="coerce")
-        mask2 = df_csv_tab["날짜_파싱"].isna()
-        if mask2.any(): df_csv_tab.loc[mask2, "날짜_파싱"] = pd.to_datetime(df_csv_tab.loc[mask2, date_col], format="%Y%m", errors="coerce")
-        mask3 = df_csv_tab["날짜_파싱"].isna()
-        if mask3.any(): df_csv_tab.loc[mask3, "날짜_파싱"] = pd.to_datetime(df_csv_tab.loc[mask3, date_col], errors="coerce")
-
-    df_csv_tab["연_csv"] = df_csv_tab["날짜_파싱"].dt.year
-    df_csv_tab["월_csv"] = df_csv_tab["날짜_파싱"].dt.month
+    # 연/월 컬럼은 캐시된 로더에서 이미 계산됨 (없을 때만 보충)
+    if "연_csv" not in df_csv_tab.columns:
+        df_csv_tab = add_date_cols(df_csv_tab)
 
 if app_mode != "for summary":
     c_y, c_q, c_empty = st.columns([1, 1, 2])
     with c_y: sel_year_rpt = st.selectbox("기준 연도", years_available, index=default_y_index, key=f"rpt_yr{key_sfx}")
-    with c_q: sel_quarter = st.selectbox("기준 분기", ["1Q (1~3월)", "2Q (1~6월 누적)", "3Q (1~9월 누적)", "4Q (1~12월 누적)"], index=default_q_index, key=f"rpt_qt{key_sfx}")
+    # 실적이 분기 3개월 모두 입력된 분기만 선택지에 노출 (예: 7~8월까지만 입력 → 2Q까지)
+    _done_q = complete_quarters_of(df_long_rpt, int(sel_year_rpt))
+    _q_options = [ALL_QUARTERS[q - 1] for q in _done_q] if _done_q else ALL_QUARTERS
+    with c_q: sel_quarter = st.selectbox("기준 분기", _q_options, index=len(_q_options) - 1, key=f"rpt_qt{key_sfx}")
     max_month = int(sel_quarter[0]) * 3
 else:
     sel_year_rpt = years_available[-1] if years_available else 2025
