@@ -60,7 +60,10 @@ COMMENT_DB_FILE = "report_comments_db.json"
 REPO_NAME = "Han11112222/quarterly-sales-report"
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_comments_db():
+    """코멘트 DB 조회. 화면이 다시 그려질 때마다 GitHub를 호출하지 않도록 60초 캐시한다.
+    (저장 시 save_comments_db 에서 캐시를 비우므로 저장 직후에는 최신 내용이 보인다.)"""
     try:
         if "GITHUB_TOKEN" in st.secrets:
             token = st.secrets["GITHUB_TOKEN"]
@@ -93,7 +96,18 @@ def save_comments_db(db_data):
     except Exception as e:
         st.warning(f"⚠️ 로컬 저장 실패: {e}")
 
-    if "GITHUB_TOKEN" not in st.secrets:
+    # 저장 직후에는 최신 내용을 다시 읽도록 캐시를 비운다
+    try:
+        load_comments_db.clear()
+    except Exception:
+        pass
+
+    try:
+        has_token = "GITHUB_TOKEN" in st.secrets
+    except Exception:
+        has_token = False
+
+    if not has_token:
         st.warning("⚠️ GITHUB_TOKEN이 설정되지 않아 영구 저장이 불가합니다. Streamlit Secrets에 추가하세요.")
         return
 
@@ -190,6 +204,43 @@ def clean_korean_finance_number(val):
     s = re.sub(r"[^\d\.-]", "", s)
     try: return float(s)
     except: return 0.0
+
+def clean_numeric_series(ser: pd.Series) -> pd.Series:
+    """clean_korean_finance_number 의 벡터화 버전. 행 단위 apply 보다 훨씬 빠르고 메모리를 적게 쓴다."""
+    s = ser.astype(str).str.replace(",", "", regex=False).str.strip()
+    neg_paren = s.str.startswith("(") & s.str.endswith(")")
+    neg_trail = s.str.endswith("-") & (s.str.len() > 1)
+    s = s.where(~neg_paren, "-" + s.str[1:-1])
+    s = s.where(~neg_trail, "-" + s.str[:-1])
+    s = s.str.replace(r"[^\d\.-]", "", regex=True)
+    return pd.to_numeric(s, errors="coerce").fillna(0.0)
+
+def clean_usage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    for c in ["사용량(mj)", "사용량(m3)"]:
+        if c in df.columns:
+            df[c] = clean_numeric_series(df[c])
+    return df
+
+@st.cache_data(show_spinner=False)
+def load_repo_csvs(base_dir: str) -> pd.DataFrame:
+    """레포의 '가정용외' CSV 전체를 읽어 병합하고 숫자 정리까지 끝낸 결과를 캐시한다.
+    (화면이 다시 그려질 때마다 CSV를 새로 읽지 않으므로 메모리/속도가 크게 개선된다.)"""
+    repo_dir = Path(base_dir)
+    paths = sorted(set(list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))))
+    frames = []
+    for p in paths:
+        try:
+            frames.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
+        except Exception:
+            try:
+                frames.append(pd.read_csv(p, encoding="cp949", thousands=','))
+            except Exception:
+                pass
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    del frames
+    return clean_usage_columns(df)
 
 def fmt_num_safe(v) -> str:
     if pd.isna(v): return "-"
@@ -471,7 +522,7 @@ with st.sidebar:
                     try: df_list.append(pd.read_csv(io.BytesIO(f.getvalue()), encoding="cp949", thousands=','))
                     except: pass
             if df_list:
-                st.session_state['merged_csv_df'] = pd.concat(df_list, ignore_index=True)
+                st.session_state['merged_csv_df'] = clean_usage_columns(pd.concat(df_list, ignore_index=True))
             csv_info = f"소스: 업로드 파일 {len(up_csvs)}개 병합 완료"
         else:
             if 'merged_csv_df' in st.session_state: del st.session_state['merged_csv_df']
@@ -582,30 +633,13 @@ elif 'excel_bytes' in locals() and excel_bytes is not None:
     long_dict_rpt = build_long_dict(sheets_rpt)
     _ph.empty()
 
+# ── 업종별 CSV 로딩 (캐시 사용: 화면이 다시 그려져도 CSV를 재조회하지 않음) ──
 df_csv = pd.DataFrame()
 if src_csv == "레포 파일 사용":
-    repo_dir = Path(__file__).parent
-    all_csvs = list(repo_dir.glob("*가정용외*.csv")) + list(repo_dir.glob("가정용외*.csv"))
-    all_csvs = list(set(all_csvs))
-    if all_csvs:
-        _ph2 = show_loading_banner("📂", "업종별 상세 데이터를 스캔하는 중입니다", "파일이 많을수록 더 풍성한 분석이 가능합니다 📁")
-        csv_list = []
-        for p in all_csvs:
-            try: csv_list.append(pd.read_csv(p, encoding="utf-8-sig", thousands=','))
-            except:
-                try: csv_list.append(pd.read_csv(p, encoding="cp949", thousands=','))
-                except: pass
-        if csv_list: df_csv = pd.concat(csv_list, ignore_index=True)
-        _ph2.empty()
+    df_csv = load_repo_csvs(str(Path(__file__).parent))
 
 if df_csv.empty and 'merged_csv_df' in st.session_state:
     df_csv = st.session_state['merged_csv_df'].copy()
-
-if not df_csv.empty:
-    _ph3 = show_loading_banner("🧹", "데이터를 깔끔하게 다듬는 중입니다", "숫자 하나하나 꼼꼼히 확인하고 있어요")
-    if "사용량(mj)" in df_csv.columns: df_csv["사용량(mj)"] = df_csv["사용량(mj)"].apply(clean_korean_finance_number)
-    if "사용량(m3)" in df_csv.columns: df_csv["사용량(m3)"] = df_csv["사용량(m3)"].apply(clean_korean_finance_number)
-    _ph3.empty()
 
 comments_db = load_comments_db()
 
@@ -642,7 +676,8 @@ if not df_long_rpt.empty:
         max_year = actual_data["연"].max()
         default_y_index = years_available.index(max_year) if max_year in years_available else len(years_available) - 1
 
-df_csv_tab = df_csv.copy()
+# df_csv 는 이미 복사본(캐시/세션 복사)이므로 추가 .copy() 없이 그대로 사용 (메모리 절감)
+df_csv_tab = df_csv
 
 if not df_csv_tab.empty:
     if unit_str == "GJ" and "사용량(mj)" in df_csv_tab.columns:
