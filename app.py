@@ -823,8 +823,15 @@ if app_mode == "for summary":
 
     st.markdown(f"**📊 연도별 그룹 판매량 상세 표 ({unit_str})**")
     stack_table = stack_pivot_table.reset_index().rename(columns={"연": "연도"})
-    format_dict = {col: "{:,.0f}" for col in stack_table.columns if col != "연도"}
-    st.dataframe(center_style(stack_table.style.format(format_dict)), use_container_width=True, hide_index=True)
+    # 가장 우측에 '대비 YoY(%)' 컬럼 추가 (전년 합계 대비 당해 합계 = 당해 ÷ 전년 × 100)
+    _tot_series = stack_pivot_table["합계"]
+    stack_table["대비 YoY(%)"] = stack_table["연도"].map(
+        lambda y: (_tot_series[y] / _tot_series[y - 1] * 100)
+        if ((y - 1) in _tot_series.index and _tot_series[y - 1] > 0) else np.nan
+    )
+    format_dict = {col: "{:,.0f}" for col in stack_table.columns if col not in ["연도", "대비 YoY(%)"]}
+    format_dict["대비 YoY(%)"] = "{:,.1f}"
+    st.dataframe(center_style(stack_table.style.format(format_dict, na_rep="-")), use_container_width=True, hide_index=True)
 
     latest_year_overall = max(selected_years) if selected_years else 2025
     total_latest_overall = stack_pivot_table.loc[latest_year_overall, "합계"] if latest_year_overall in stack_pivot_table.index else 0
