@@ -851,6 +851,9 @@ if app_mode == "for summary":
 
     ind_target_cols = ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"]
 
+    # 차트에 표시할 연도 목록 (선택 연도 + CSV에 있는 가장 최근 연도 = 올해 '현재까지 누적')
+    ind_years = sorted(int(y) for y in selected_years)
+
     if not df_ind.empty and "업종" in df_ind.columns:
         def map_industry_name(name):
             name = str(name)
@@ -860,7 +863,15 @@ if app_mode == "for summary":
             if "식료품" in name: return "식료품"
             return "기타"
         df_ind["단순업종"] = df_ind["업종"].apply(map_industry_name)
-        df_ind_filtered = df_ind[df_ind["연_csv"].isin(selected_years)].copy()
+
+        # 실적이 있는 가장 최근 연도(예: 2026)를 자동 추가 → 현재까지 누적 막대로 표시
+        if val_col in df_ind.columns:
+            _csv_years = df_ind.loc[df_ind[val_col] > 0, "연_csv"].dropna()
+            if not _csv_years.empty:
+                _latest_csv_year = int(_csv_years.max())
+                if _latest_csv_year not in ind_years:
+                    ind_years = sorted(ind_years + [_latest_csv_year])
+        df_ind_filtered = df_ind[df_ind["연_csv"].isin(ind_years)].copy()
     else:
         df_ind_filtered = pd.DataFrame(columns=["연_csv", "단순업종", val_col])
 
@@ -872,8 +883,10 @@ if app_mode == "for summary":
     }
 
     ind_data_list = []
-    for yr in selected_years:
+    ind_year_label: Dict[int, str] = {}   # x축 표시용 라벨 (누적 연도는 '2026<br>(1~N월 누적)')
+    for yr in ind_years:
         row_dict = {"연_csv": yr}
+        ind_year_label[yr] = str(yr)
         if yr in historical_ind_gj and unit_str == "GJ":
             for tc in ind_target_cols:
                 row_dict[tc] = historical_ind_gj[yr].get(tc, 0)
@@ -882,6 +895,11 @@ if app_mode == "for summary":
             for tc in ind_target_cols:
                 val = yr_df[yr_df["단순업종"] == tc][val_col].sum() if not yr_df.empty else 0
                 row_dict[tc] = val
+            # 12월까지 데이터가 없는 연도 → 마지막 데이터 월까지 '누적'으로 표기
+            if not yr_df.empty and "월_csv" in yr_df.columns:
+                _months = yr_df.loc[yr_df[val_col] > 0, "월_csv"].dropna()
+                if not _months.empty and int(_months.max()) < 12:
+                    ind_year_label[yr] = f"{yr}<br>(1~{int(_months.max())}월 누적)"
         ind_data_list.append(row_dict)
 
     ind_pivot = pd.DataFrame(ind_data_list).set_index("연_csv")
@@ -891,6 +909,7 @@ if app_mode == "for summary":
     yearly_ind_totals = ind_stack_full.groupby("연_csv")[val_col].transform("sum")
     ind_stack_full["비율(%)"] = np.where(yearly_ind_totals > 0, (ind_stack_full[val_col] / yearly_ind_totals * 100).round(1), 0)
     ind_stack_full["텍스트"] = ind_stack_full.apply(lambda x: f"{x[val_col]:,.0f}<br>({x['비율(%)']}%)" if x[val_col] > 0 else "", axis=1)
+    ind_stack_full["연도표시"] = ind_stack_full["연_csv"].map(ind_year_label)
 
     ind_color_map = {
         "섬유업종": "#1B3A6B",
@@ -900,15 +919,21 @@ if app_mode == "for summary":
         "기타":     "#B0CFE0",
     }
     fig_ind_stack = px.bar(
-        ind_stack_full, x="연_csv", y=val_col, color="단순업종",
+        ind_stack_full, x="연도표시", y=val_col, color="단순업종",
         title=f"연도별 산업용 세부 업종 판매량 추이",
         text="텍스트",
         color_discrete_map=ind_color_map,
-        category_orders={"단순업종": ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"]}
+        category_orders={
+            "단순업종": ["섬유업종", "펄프업종", "1차금속", "식료품", "기타"],
+            "연도표시": [ind_year_label[y] for y in ind_years],
+        }
     )
     fig_ind_stack.update_layout(
         xaxis_title="연도", yaxis_title=f"판매량 ({unit_str})",
-        barmode="stack", margin=dict(t=40, b=20, l=20, r=20),
+        barmode="stack", margin=dict(t=40, b=60, l=20, r=20),
+        height=850,   # 세로 확대: 비중이 작은 식료품 구간의 라벨도 보이도록
+        # 모든 막대 라벨을 같은 크기로 고정 (좁은 구간에서 글씨가 줄어들거나 숨겨지지 않음)
+        uniformtext=dict(minsize=13, mode="show"),
         xaxis=dict(type='category', linecolor="#DDDDDD"),
         plot_bgcolor="white", paper_bgcolor="white",
         font=dict(color="#333333"),
@@ -917,11 +942,11 @@ if app_mode == "for summary":
     )
     fig_ind_stack.update_traces(
         textposition='inside', insidetextanchor='middle',
-        textfont=dict(size=12, color="white"),
+        textfont=dict(size=13, color="white"),
         marker_line_width=0,
     )
     fig_ind_stack.for_each_trace(
-        lambda t: t.update(textfont=dict(size=12, color="black")) if t.name == "기타" else None
+        lambda t: t.update(textfont=dict(size=13, color="black")) if t.name in ("기타", "식료품") else None
     )
     st.plotly_chart(fig_ind_stack, use_container_width=True)
 
@@ -934,16 +959,19 @@ if app_mode == "for summary":
         )
     ind_table["💡 총계"] = ind_table["💡 총계"].apply(lambda x: f"{x:,.0f}")
     ind_table = ind_table.reset_index().rename(columns={"연_csv": "연도"})
+    ind_table["연도"] = ind_table["연도"].map(lambda y: ind_year_label.get(y, str(y)).replace("<br>", " "))
     st.dataframe(center_style(ind_table.style), use_container_width=True, hide_index=True)
 
-    latest_year_ind = max(selected_years) if selected_years else 2025
+    latest_year_ind = max(ind_years) if ind_years else 2025
+    _latest_lbl = ind_year_label.get(latest_year_ind, str(latest_year_ind))
+    _ind_period_txt = f" {_latest_lbl.split('<br>')[1]}" if "<br>" in _latest_lbl else ""
     total_latest_ind = ind_pivot.loc[latest_year_ind].sum() if latest_year_ind in ind_pivot.index else 0
     top4_val = sum(ind_pivot.loc[latest_year_ind, tc] for tc in ["섬유업종", "펄프업종", "1차금속", "식료품"] if latest_year_ind in ind_pivot.index and tc in ind_pivot.columns)
     top4_ratio = (top4_val / total_latest_ind * 100) if total_latest_ind > 0 else 0
 
     st.markdown(f"""
     <div style="background-color: #f8f9fa; border-left: 4px solid #1f77b4; padding: 15px; border-radius: 4px; margin-bottom: 40px; color: #1e40af; font-size: 15px;">
-        <strong>💡 [산업용 구성 요약]</strong> {latest_year_ind}년 산업용 전체 판매량은 <strong>{total_latest_ind:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
+        <strong>💡 [산업용 구성 요약]</strong> {latest_year_ind}년{_ind_period_txt} 산업용 전체 판매량은 <strong>{total_latest_ind:,.0f} {unit_str}</strong>이며, 주요 4대 업종(섬유, 펄프, 1차금속, 식료품)이 전체의 <strong>{top4_ratio:.1f}%</strong> ({top4_val:,.0f} {unit_str})를 점유하고 있습니다.
     </div>
     """, unsafe_allow_html=True)
 
